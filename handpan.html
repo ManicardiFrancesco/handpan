@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Handpan — physical-modeling synthesizer</title>
+<style>
+  :root{
+    --bg:#0d0f12; --bg2:#15181d; --panel:#1a1e24; --line:#2a3038;
+    --txt:#e6e3dc; --dim:#8b8f97; --acc:#d9a441; --acc2:#7fbfa8;
+    --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1200px 800px at 50% -10%,#1b2027 0%,var(--bg) 60%);
+    color:var(--txt);font-family:var(--font);overscroll-behavior:none;touch-action:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .wrap{display:flex;flex-direction:column;height:100%;max-width:1180px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;padding:14px 18px 8px;flex-wrap:wrap}
+  header h1{font-size:15px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin:0}
+  header .sub{font-size:12px;color:var(--dim)}
+  header .spacer{flex:1}
+  #status{font-size:12px;color:var(--acc)}
+  main{flex:1;display:flex;gap:16px;padding:0 18px 14px;min-height:0}
+  #stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;position:relative}
+  canvas{display:block;touch-action:none;cursor:pointer}
+  aside{
+    width:290px;flex:0 0 290px;background:linear-gradient(180deg,var(--panel),#161a20);
+    border:1px solid var(--line);border-radius:12px;padding:12px 14px;overflow-y:auto
+  }
+  .grp{margin-bottom:14px}
+  .grp>h2{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:0 0 8px;font-weight:600}
+  label.row{display:block;margin-bottom:9px;font-size:12px}
+  label.row .lab{display:flex;justify-content:space-between;color:var(--dim);margin-bottom:3px}
+  label.row .lab b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
+  select,input[type=range]{width:100%}
+  select{
+    background:#0f1216;color:var(--txt);border:1px solid var(--line);border-radius:7px;
+    padding:6px 8px;font:inherit;font-size:12px
+  }
+  input[type=range]{-webkit-appearance:none;appearance:none;height:20px;background:transparent}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;background:#31373f;border-radius:2px}
+  input[type=range]::-moz-range-track{height:3px;background:#31373f;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);
+    margin-top:-6px;border:none;box-shadow:0 0 0 3px rgba(217,164,65,.15)
+  }
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--acc)}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  button{
+    flex:1;min-width:74px;background:#0f1216;color:var(--txt);border:1px solid var(--line);
+    border-radius:7px;padding:7px 8px;font:inherit;font-size:12px;cursor:pointer
+  }
+  button:hover{border-color:#3d4550;background:#141920}
+  button.on{background:rgba(217,164,65,.16);border-color:var(--acc);color:var(--acc)}
+  .hint{font-size:11px;color:var(--dim);line-height:1.55}
+  .hint kbd{
+    background:#0f1216;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+    padding:0 4px;font-family:ui-monospace,monospace;font-size:10px;color:var(--txt)
+  }
+  #notes{font-size:11px;color:var(--dim);line-height:1.7;font-variant-numeric:tabular-nums}
+  #notes span{display:inline-block;min-width:56px}
+  #notes b{color:var(--acc2);font-weight:500}
+  #gate{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(13,15,18,.72);backdrop-filter:blur(3px);z-index:5;cursor:pointer;border-radius:12px
+  }
+  #gate div{text-align:center}
+  #gate b{display:block;font-size:15px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+  #gate small{color:var(--dim);font-size:12px}
+  @media (max-width:860px){
+    main{flex-direction:column;padding:0 10px 10px}
+    aside{width:100%;flex:0 0 auto;max-height:44vh}
+    #stage{min-height:46vh}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Handpan</h1>
+    <span class="sub">modal physical-modeling synthesizer</span>
+    <span class="spacer"></span>
+    <span id="status">click anywhere to start audio</span>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="pan"></canvas>
+      <div id="gate"><div><b>Start</b><small>tap to enable audio</small></div></div>
+    </div>
+    <aside>
+      <div class="grp">
+        <h2>Instrument</h2>
+        <label class="row"><span class="lab">Scale</span><select id="scale"></select></label>
+        <label class="row"><span class="lab">Root / ding</span><select id="root"></select></label>
+        <label class="row"><span class="lab">Concert pitch A4 <b id="a4v">440 Hz</b></span>
+          <input type="range" id="a4" min="430" max="446" step="1" value="440"></label>
+        <div class="btns"><button id="reseed">Re-seed build</button></div>
+      </div>
+
+      <div class="grp">
+        <h2>Touch</h2>
+        <label class="row"><span class="lab">Force <b id="forcev">0.72</b></span>
+          <input type="range" id="force" min="0.08" max="1" step="0.01" value="0.72"></label>
+        <label class="row"><span class="lab">Contact softness <b id="contactv">1.00</b></span>
+          <input type="range" id="contact" min="0.4" max="1.8" step="0.02" value="1"></label>
+        <label class="row"><span class="lab">Strike position <b id="posv">0.15</b></span>
+          <input type="range" id="pos" min="0" max="1" step="0.01" value="0.15"></label>
+      </div>
+
+      <div class="grp">
+        <h2>Body</h2>
+        <label class="row"><span class="lab">Sustain <b id="susv">1.00</b></span>
+          <input type="range" id="sus" min="0.25" max="1.6" step="0.01" value="1"></label>
+        <label class="row"><span class="lab">Sympathetic coupling <b id="coupv">0.42</b></span>
+          <input type="range" id="coup" min="0" max="1" step="0.01" value="0.42"></label>
+        <label class="row"><span class="lab">Helmholtz <b id="helmv">85 Hz</b></span>
+          <input type="range" id="helm" min="70" max="100" step="1" value="85"></label>
+        <label class="row"><span class="lab">Room <b id="wetv">0.30</b></span>
+          <input type="range" id="wet" min="0" max="1" step="0.01" value="0.3"></label>
+        <label class="row"><span class="lab">Volume <b id="volv">0.75</b></span>
+          <input type="range" id="vol" min="0" max="1" step="0.01" value="0.75"></label>
+        <div class="btns">
+          <button id="damp">Damp</button>
+          <button id="demo">Demo</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h2>Layout</h2>
+        <div id="notes"></div>
+      </div>
+
+      <div class="grp">
+        <h2>Playing</h2>
+        <p class="hint">
+          Tap a tone field. Struck near the <b>dimple</b> the fundamental dominates; toward the
+          <b>shoulder</b> you get the octave/twelfth (harmonic isolation). Tapping bare shell = <b>tak</b>.<br><br>
+          Keys: <kbd>space</kbd> ding, <kbd>a</kbd><kbd>s</kbd><kbd>d</kbd><kbd>f</kbd><kbd>g</kbd><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> notes,
+          <kbd>shift</kbd> soft, <kbd>alt</kbd> hard, <kbd>m</kbd> damp, <kbd>t</kbd> tak.
+        </p>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- ===================== DSP: AudioWorklet source ===================== -->
+<script id="worklet-src" type="text/plain">
+// Handpan modal resonator bank.
+//   * one 2-pole resonator per mode, states NEVER reset between strikes
+//   * excitation = compliant-contact force pulse: a unit impulse through two
+//     cascaded one-poles, h(t) = (t/T^2)e^(-t/T).  Unit area, monotone
+//     -12 dB/oct rolloff above 1/(2*pi*T) and NO spectral nulls, so contact
+//     time controls brightness smoothly (a Hann pulse's nulls make individual
+//     partials disappear at particular velocities, which is unphysical).
+//   * b0 = A*sin(w) so a unit-area pulse yields peak modal amplitude A
+//   * sympathetic coupling: resonator i's previous output drives resonator j
+class HandpanProcessor extends AudioWorkletProcessor {
+  constructor () {
+    super();
+    this.fs = sampleRate;
+    this.ready = false;
+    this.master = 0.2;   // single strikes stay linear; only dense play saturates
+    this.sustain = 1;
+    this.kappa = 0.05;
+    this.glDec = Math.exp(-128 / (this.fs * 0.08)); // 80 ms pitch-settling
+    this.nz1 = 0; this.nz2 = 0; this.tickEnv = 0; this.tickDec = Math.exp(-1 / (this.fs * 0.006));
+    // DC blocker: the force pulse is positive-only, so each resonator has a
+    // small nonzero DC response that would otherwise eat output headroom.
+    this.dcR = Math.exp(-2 * Math.PI * 8 / this.fs);
+    this.dxL = 0; this.dyL = 0; this.dxR = 0; this.dyR = 0;
+    // fixed band-pass (~2.6 kHz, Q~1.1) for the contact tick
+    const w = 2 * Math.PI * 2600 / this.fs, r = Math.exp(-Math.PI * 2400 / this.fs);
+    this.ta1 = -2 * r * Math.cos(w); this.ta2 = r * r; this.tb0 = (1 - r) * Math.sin(w);
+    this.port.onmessage = (e) => this.onmsg(e.data);
+  }
+
+  onmsg (m) {
+    if (m.type === 'setup') this.setup(m);
+    else if (m.type === 'strike') this.strike(m);
+    else if (m.type === 'pan') {
+      if (!this.ready) return;
+      for (let n = 0; n < m.idx.length; n++) {
+        const i = m.idx[n];
+        this.pL[i] = m.pL[n]; this.pR[i] = m.pR[n];
+      }
+    }
+    else if (m.type === 'param') {
+      if (m.master !== undefined) this.master = m.master;
+      if (m.sustain !== undefined) this.sustain = m.sustain;
+      if (m.kappa !== undefined) this.kappa = m.kappa;
+      if (this.ready) this.recalc();
+    }
+  }
+
+  setup (m) {
+    const N = m.f.length;
+    this.N = N;
+    this.f = Float32Array.from(m.f);
+    this.t60 = Float32Array.from(m.t60);
+    this.src = Int32Array.from(m.src);          // exciter slot feeding this resonator
+    this.pL = Float32Array.from(m.pL);
+    this.pR = Float32Array.from(m.pR);
+    this.a1 = new Float32Array(N); this.a2 = new Float32Array(N);
+    this.y1 = new Float32Array(N); this.y2 = new Float32Array(N);
+    this.sw = new Float32Array(N); this.omr = new Float32Array(N);
+    this.drv = new Float32Array(N); this.inp = new Float32Array(N);
+    this.gl = new Float32Array(N);
+    this.cd = Int32Array.from(m.cd); this.cs = Int32Array.from(m.cs);
+    this.ck = Float32Array.from(m.ck);
+    this.cg = new Float32Array(this.cd.length);
+    const S = m.slots;
+    this.S = S;
+    this.eOn = new Uint8Array(S); this.eP = new Int32Array(S);
+    this.eL = new Int32Array(S);
+    this.e = new Float32Array(S);
+    this.ec = new Float32Array(S);   // contact-filter pole
+    this.e1 = new Float32Array(S); this.e2 = new Float32Array(S);
+    this.recalc();
+    this.ready = true;
+  }
+
+  coef (i) {
+    const t = Math.max(0.02, this.t60[i] * this.sustain);
+    const r = Math.exp(-6.907755 / (t * this.fs));
+    let w = 2 * Math.PI * this.f[i] * Math.pow(2, this.gl[i] / 1200) / this.fs;
+    if (w > 2.9) w = 2.9;
+    this.a1[i] = -2 * r * Math.cos(w);
+    this.a2[i] = r * r;
+    this.sw[i] = Math.sin(w);
+    this.omr[i] = 1 - r;
+  }
+
+  recalc () {
+    for (let i = 0; i < this.N; i++) this.coef(i);
+    for (let c = 0; c < this.cd.length; c++)
+      this.cg[c] = 2 * this.omr[this.cd[c]] * this.ck[c] * this.kappa;
+  }
+
+  /* Magnitude of the DC-normalised 2-pole contact filter at angular freq w. */
+  cmag (w, c) { return (1 - c) * (1 - c) / (1 - 2 * c * Math.cos(w) + c * c); }
+
+  strike (m) {
+    if (!this.ready) return;
+    const idx = m.idx, amp = m.amp;
+    // The excitation pulse already imposes cmag(w, c) on every mode, so the
+    // drive only pre-compensates for the REFERENCE contact time.  Net modal
+    // amplitude is therefore amp * cmag(w,c)/cmag(w,ref): exactly the gain
+    // table at reference contact, tilting darker/brighter as contact changes.
+    const cr = Math.exp(-1 / Math.max(1.2, m.ref));
+    for (let n = 0; n < idx.length; n++) {
+      const i = idx[n];
+      const w = 2 * Math.PI * this.f[i] / this.fs;
+      this.drv[i] = w > 3.0 ? 0 : amp[n] * this.sw[i] / this.cmag(w, cr);
+    }
+    if (m.gidx) {
+      for (let n = 0; n < m.gidx.length; n++) {
+        const i = m.gidx[n];
+        this.gl[i] = m.gcent[n];
+        this.coef(i);
+      }
+    }
+    for (let n = 0; n < m.slot.length; n++) {
+      const s = m.slot[n];
+      // T = contact time in samples; kick the 2-pole contact filter with a
+      // unit impulse.  Steady-state area of (1-c)^2/(1-c z^-1)^2 * 1 is 1.
+      const T = Math.max(1.2, m.len[n]);
+      const c = Math.exp(-1 / T);
+      this.ec[s] = c;
+      this.eOn[s] = 1; this.eP[s] = 0;
+      this.eL[s] = Math.ceil(T * 12) + 8;      // run until decayed
+      this.e1[s] += (1 - c) * (1 - c);         // additive: overlapping strikes sum
+    }
+    if (m.tick) this.tickEnv = m.tick;
+  }
+
+  process (inputs, outputs) {
+    const out = outputs[0], L = out[0], R = out[1] || out[0];
+    const nf = L.length;
+    if (!this.ready) { L.fill(0); if (R !== L) R.fill(0); return true; }
+
+    // --- per-block: nonlinear pitch settling -------------------------------
+    for (let i = 0; i < this.N; i++) {
+      if (this.gl[i] !== 0) {
+        this.gl[i] *= this.glDec;
+        if (Math.abs(this.gl[i]) < 0.03) this.gl[i] = 0;
+        this.coef(i);
+      }
+    }
+
+    const N = this.N, S = this.S, nc = this.cd.length;
+    const e = this.e, eOn = this.eOn, eP = this.eP, eL = this.eL;
+    const ec = this.ec, e1 = this.e1, e2 = this.e2;
+    const inp = this.inp, drv = this.drv, src = this.src;
+    const a1 = this.a1, a2 = this.a2, y1 = this.y1, y2 = this.y2;
+    const cd = this.cd, cs = this.cs, cg = this.cg, pL = this.pL, pR = this.pR;
+    const TAU = 2 * Math.PI;
+
+    for (let n = 0; n < nf; n++) {
+      // 1. excitation: two cascaded one-poles = compliant contact pulse
+      for (let s = 0; s < S; s++) {
+        if (eOn[s]) {
+          const c = ec[s];
+          e2[s] = e2[s] * c + e1[s];
+          e1[s] *= c;
+          e[s] = e2[s];
+          if (++eP[s] >= eL[s]) { eOn[s] = 0; e1[s] = 0; e2[s] = 0; }
+        } else e[s] = 0;
+      }
+      // 2. resonator inputs (direct drive + sympathetic coupling)
+      for (let i = 0; i < N; i++) inp[i] = e[src[i]] * drv[i];
+      for (let c = 0; c < nc; c++) inp[cd[c]] += y1[cs[c]] * cg[c];
+      // 3. run the bank
+      let l = 0, r = 0;
+      for (let i = 0; i < N; i++) {
+        const y = inp[i] - a1[i] * y1[i] - a2[i] * y2[i];
+        y2[i] = y1[i]; y1[i] = y;
+        l += y * pL[i]; r += y * pR[i];
+      }
+      // 4. contact tick (broadband, direct to output)
+      if (this.tickEnv > 1e-5) {
+        const x = (Math.random() * 2 - 1) * this.tickEnv;
+        const t = this.tb0 * x - this.ta1 * this.nz1 - this.ta2 * this.nz2;
+        this.nz2 = this.nz1; this.nz1 = t;
+        this.tickEnv *= this.tickDec;
+        l += t; r += t;
+      }
+      const g = this.master, dr = this.dcR;
+      const yl = l * g - this.dxL + dr * this.dyL; this.dxL = l * g; this.dyL = yl;
+      const yr = r * g - this.dxR + dr * this.dyR; this.dxR = r * g; this.dyR = yr;
+      L[n] = Math.tanh(yl);
+      R[n] = Math.tanh(yr);
+    }
+    return true;
+  }
+}
+registerProcessor('handpan', HandpanProcessor);
+</script>
+
+<!-- ===================== Instrument model + UI ===================== -->
+<script>
+'use strict';
+
+/* ---------------------------------------------------------------- scales --
+   Semitone offsets from the ding (index 0 = ding, the lowest note).        */
+const SCALES = [
+  { name:'D Kurd 9 (natural minor)', root:50, iv:[0,7,8,10,12,14,15,17,19] },
+  { name:'D Celtic Minor 9',         root:50, iv:[0,7,10,12,14,15,17,19,22] },
+  { name:'D Amara / Ysha 8',         root:50, iv:[0,7,10,12,14,15,19,22] },
+  { name:'D Hijaz 9',                root:50, iv:[0,7,8,11,12,13,16,17,19] },
+  { name:'F Pygmy 8',                root:53, iv:[0,3,5,7,10,12,15,17] },
+  { name:'D Integral 9 (major)',     root:50, iv:[0,7,9,11,12,14,16,17,19] },
+  { name:'D Minor Pentatonic 8',     root:50, iv:[0,7,10,12,14,17,19,22] },
+  { name:'C Major Pentatonic 8',     root:48, iv:[0,7,9,12,14,16,19,21] },
+];
+
+/* ------------------------------------------------------- modal template --
+   Each tone field: three principal modes at JUST 1:2:3, each doubled by a
+   near-degenerate partner a few Hz away (that pair IS the beating), plus a
+   4th partial and a velocity-gated inharmonic high cluster.
+   t60 values are for a D3 reference (146.83 Hz) and scale as 1/sqrt(f0).   */
+const MODES = [
+  { p:1, ratio:1.000, db:  0, t60:6.0, beat:0,    gate:0    },
+  { p:1, ratio:1.000, db:-12, t60:5.0, beat:+1.2, gate:0    },
+  { p:2, ratio:2.000, db: -4, t60:4.0, beat:0,    gate:0    },
+  { p:2, ratio:2.000, db:-16, t60:3.5, beat:+1.8, gate:0    },
+  { p:3, ratio:3.000, db:-10, t60:2.5, beat:0,    gate:0    },
+  { p:3, ratio:3.000, db:-20, t60:2.0, beat:-2.5, gate:0    },
+  { p:4, ratio:3.980, db:-22, t60:1.2, beat:0,    gate:0    },
+  { p:5, ratio:5.900, db:-28, t60:0.5, beat:0,    gate:0.45 },
+  { p:6, ratio:7.400, db:-30, t60:0.4, beat:0,    gate:0.45 },
+  { p:7, ratio:8.200, db:-32, t60:0.3, beat:0,    gate:0.45 },
+];
+const PRINCIPAL = [0, 2, 4];  // indices of the three main (unpartnered) modes
+
+const dB    = (d) => Math.pow(10, d / 20);
+const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = (m) => NAMES[m % 12] + (Math.floor(m / 12) - 1);
+
+/* mulberry32 — deterministic per-build randomisation */
+function rng (seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ================================================================ engine */
+const AudioEngine = {
+  ctx:null, node:null, master:null, wet:null, dry:null, started:false,
+  inst:null,
+
+  async start () {
+    if (this.starting) return this.starting;
+    this.starting = this._start();
+    return this.starting;
+  },
+
+  async _start () {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new Ctx({ latencyHint:'interactive' });
+    const src = document.getElementById('worklet-src').textContent;
+    // A blob: URL inherits a null origin when the page itself is opened from
+    // file://, and Chromium then refuses to load it as a worklet module. A
+    // data: URL has no such restriction, so it is tried first and the blob is
+    // only a fallback for engines that reject long data: URLs.
+    try {
+      await this.ctx.audioWorklet.addModule(
+        'data:application/javascript;base64,' + btoa(unescape(encodeURIComponent(src))));
+    } catch (err) {
+      const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
+      try { await this.ctx.audioWorklet.addModule(url); }
+      finally { URL.revokeObjectURL(url); }
+    }
+
+    this.node = new AudioWorkletNode(this.ctx, 'handpan', { outputChannelCount:[2] });
+    this.master = this.ctx.createGain();
+    this.dry = this.ctx.createGain();
+    this.wet = this.ctx.createGain();
+    const conv = this.ctx.createConvolver();
+    conv.buffer = this.makeIR(2.9);
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 140;
+
+    this.node.connect(this.dry).connect(this.master);
+    this.node.connect(hp).connect(conv).connect(this.wet).connect(this.master);
+    this.master.connect(this.ctx.destination);
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    this.started = true;
+  },
+
+  makeIR (dur) {
+    const fs = this.ctx.sampleRate, n = Math.floor(fs * dur);
+    const buf = this.ctx.createBuffer(2, n, fs);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / fs;
+        const env = Math.exp(-3.6 * t / dur) * Math.min(1, t / 0.012);
+        lp += 0.42 * ((Math.random() * 2 - 1) - lp);   // darken the tail
+        d[i] = lp * env;
+      }
+    }
+    return buf;
+  },
+
+  /* Build the flat resonator table for a scale and push it to the DSP. */
+  build (scaleIdx, rootMidi, a4, helmF, seed) {
+    const sc = SCALES[scaleIdx];
+    const R = rng(seed * 2654435761 + 12345);
+    const notes = [], f = [], t60 = [], src = [], pL = [], pR = [];
+    const slotOf = [];                        // note -> exciter slot
+    const nNotes = sc.iv.length;
+    const GLOBAL_SLOT = nNotes;               // shell / cavity exciter
+
+    sc.iv.forEach((iv, ni) => {
+      const midi = rootMidi + iv;
+      const f0 = a4 * Math.pow(2, (midi - 69) / 12);
+      const tScale = Math.sqrt(146.83 / f0);
+      const pan = 0;                          // filled in after layout
+      const modes = MODES.map((m, mi) => {
+        // Ratio jitter: real tone fields deviate a few tenths of a percent from
+        // exact 1:2:3.  Mode 1 is NOT jittered — it carries the perceived pitch
+        // and must land on the tempered fundamental.  Modes 2-3 drift slightly
+        // (tuner's compromise); the high cluster is strongly inharmonic.
+        const jit = mi === 0 ? 1
+                  : mi < 7  ? 1 + (R() - 0.5) * 0.004
+                            : 1 + (R() - 0.5) * 0.09;
+        const beat = m.beat === 0 ? 0 : m.beat * (0.6 + R() * 0.9);
+        const freq = f0 * m.ratio * jit + beat;
+        const rad  = 1 / Math.sqrt(1 + Math.pow(freq / 3600, 2));   // radiation
+        return {
+          f: freq,
+          amp: dB(m.db) * rad,
+          t60: m.t60 * tScale * (0.88 + R() * 0.24),
+          gate: m.gate, p: m.p, i: 0,
+        };
+      });
+      notes.push({ ni, midi, f0, name:noteName(midi), modes, pan, slot:ni, x:0, y:0, r:0, flash:0 });
+      slotOf[ni] = ni;
+    });
+
+    // flatten note modes
+    notes.forEach(nt => nt.modes.forEach(md => {
+      md.i = f.length;
+      f.push(md.f); t60.push(md.t60); src.push(nt.slot); pL.push(0.7); pR.push(0.7);
+    }));
+
+    // global modes: Helmholtz cavity + two weak shell modes, excited by all strikes
+    const dingF = notes[0].f0;
+    const globals = [
+      { f:helmF,          amp:dB(-25), t60:1.5 },
+      { f:dingF * 1.42,   amp:dB(-33), t60:0.9 },
+      { f:dingF * 2.31,   amp:dB(-35), t60:0.6 },
+    ];
+    globals.forEach(g => {
+      g.i = f.length;
+      f.push(g.f); t60.push(g.t60); src.push(GLOBAL_SLOT); pL.push(0.7); pR.push(0.7);
+    });
+
+    /* --- coupling: notes that share a partial frequency drive each other -- */
+    const cd = [], cs = [], ck = [];
+    for (let i = 0; i < nNotes; i++) for (let j = 0; j < nNotes; j++) {
+      if (i === j) continue;
+      for (const a of PRINCIPAL) for (const b of PRINCIPAL) {
+        const fa = notes[i].modes[a].f, fb = notes[j].modes[b].f;
+        const tol = Math.max(3.5, 0.008 * fb);
+        const d = Math.abs(fa - fb);
+        if (d > tol) continue;
+        cd.push(notes[j].modes[b].i);            // destination resonator
+        cs.push(notes[i].modes[a].i);            // source resonator
+        ck.push(1 - d / tol);                    // closer = stronger
+      }
+    }
+
+    this.inst = { sc, notes, globals, nNotes, GLOBAL_SLOT, a4, rootMidi, helmF };
+    if (!this.node) return this.inst;
+    this.node.port.postMessage({
+      type:'setup',
+      f:Float32Array.from(f), t60:Float32Array.from(t60),
+      src:Int32Array.from(src),
+      pL:Float32Array.from(pL), pR:Float32Array.from(pR),
+      cd:Int32Array.from(cd), cs:Int32Array.from(cs), ck:Float32Array.from(ck),
+      slots:nNotes + 1,
+    });
+    return this.inst;
+  },
+
+  /* per-note pan comes from the drawn layout */
+  setPans (notes) {
+    if (!this.node || !this.inst) return;
+    const pL = [], pR = [], idx = [];
+    notes.forEach(nt => nt.modes.forEach(md => {
+      const p = Math.max(-0.62, Math.min(0.62, nt.pan));
+      idx.push(md.i);
+      pL.push(Math.cos((p + 1) * Math.PI / 4) * 1.0);
+      pR.push(Math.sin((p + 1) * Math.PI / 4) * 1.0);
+    }));
+    this.node.port.postMessage({ type:'pan', idx:Int32Array.from(idx),
+      pL:Float32Array.from(pL), pR:Float32Array.from(pR) });
+  },
+
+  param (o) { if (this.node) this.node.port.postMessage(Object.assign({ type:'param' }, o)); },
+
+  /* ---- strike ---------------------------------------------------------- */
+  strike (noteIdx, vel, pos, contact) {
+    const I = this.inst;
+    if (!this.node || !I) return;
+    const v = Math.max(0.02, Math.min(1, vel));
+    const p = Math.max(0, Math.min(1, pos));
+    const nt = I.notes[noteIdx];
+    const idx = [], amp = [], gidx = [], gcent = [];
+
+    // strike position: dimple -> fundamental, shoulder -> octave/twelfth
+    const posDb = { 1:-18 * Math.pow(p, 1.6), 2:6 * Math.pow(p, 0.7),
+                    3:8 * Math.pow(p, 1.2) };
+    for (const md of nt.modes) {
+      let g = md.amp * Math.pow(v, 1.15) * dB(posDb[md.p] !== undefined ? posDb[md.p] : 4 * p);
+      if (md.gate > 0) {
+        if (v <= md.gate) g = 0;
+        else g *= Math.pow((v - md.gate) / (1 - md.gate), 2);
+      }
+      idx.push(md.i); amp.push(g);
+      // nonlinear pitch settling on hard strikes (principal modes only)
+      if (md.p <= 2 && v > 0.55) {
+        gidx.push(md.i);
+        gcent.push((v - 0.55) / 0.45 * 7 * (md.p === 1 ? 1 : 0.6));
+      }
+    }
+    for (const g of I.globals) { idx.push(g.i); amp.push(g.amp * v); }
+
+    // Contact time 8 ms (soft) -> 2 ms (hard). The filter time-constant is
+    // ~1/5 of the visible contact duration.
+    const ms = (8 - 6 * v) * contact;
+    const sr = this.ctx.sampleRate;
+    const len = Math.max(2, Math.round(ms * 0.001 * sr / 5));
+    const ref = Math.round(0.0045 * sr / 5);   // reference: 4.5 ms contact
+    this.node.port.postMessage({
+      type:'strike',
+      idx:Int32Array.from(idx), amp:Float32Array.from(amp),
+      gidx:Int32Array.from(gidx), gcent:Float32Array.from(gcent),
+      slot:Int32Array.from([nt.slot, I.GLOBAL_SLOT]),
+      len:Int32Array.from([len, len * 3]),
+      ref, tick:0.05 * v * v / contact,
+    });
+    nt.flash = 1;
+  },
+
+  /* bare-shell "tak": broadband tick + shell/cavity modes only */
+  tak (vel) {
+    const I = this.inst;
+    if (!this.node || !I) return;
+    const v = Math.max(0.05, Math.min(1, vel));
+    const idx = [], amp = [];
+    for (const g of I.globals) { idx.push(g.i); amp.push(g.amp * v * 2.2); }
+    this.node.port.postMessage({
+      type:'strike',
+      idx:Int32Array.from(idx), amp:Float32Array.from(amp),
+      slot:Int32Array.from([I.GLOBAL_SLOT]),
+      len:Int32Array.from([Math.max(2, Math.round(0.0015 * this.ctx.sampleRate / 5))]),
+      ref:Math.round(0.0045 * this.ctx.sampleRate / 5),
+      tick:0.16 * v,
+    });
+  },
+};
+
+/* ================================================================== view */
+const UI = {
+  cv:null, cx:null, W:0, H:0, dpr:1, seed:7, damped:false, demoTimer:null,
+  el:{},
+
+  init () {
+    this.cv = document.getElementById('pan');
+    this.cx = this.cv.getContext('2d');
+    ['scale','root','a4','a4v','force','forcev','contact','contactv','pos','posv',
+     'sus','susv','coup','coupv','helm','helmv','wet','wetv','vol','volv',
+     'damp','demo','reseed','notes','status','gate'].forEach(id => this.el[id] = document.getElementById(id));
+
+    SCALES.forEach((s, i) => this.el.scale.add(new Option(s.name, i)));
+    for (let m = 43; m <= 62; m++) this.el.root.add(new Option(noteName(m), m));
+
+    this.el.scale.onchange = () => {
+      this.el.root.value = SCALES[+this.el.scale.value].root;
+      this.rebuild();
+    };
+    this.el.root.onchange = () => this.rebuild();
+    this.el.a4.oninput = () => { this.el.a4v.textContent = this.el.a4.value + ' Hz'; this.rebuild(); };
+    this.el.helm.oninput = () => { this.el.helmv.textContent = this.el.helm.value + ' Hz'; this.rebuild(); };
+    this.el.reseed.onclick = () => { this.seed = (Math.random() * 1e6) | 0; this.rebuild(); };
+
+    const bind = (k, fmt, fn) => {
+      this.el[k].oninput = () => {
+        this.el[k + 'v'].textContent = fmt(+this.el[k].value);
+        fn(+this.el[k].value);
+      };
+      this.el[k].oninput();
+    };
+    const f2 = (x) => x.toFixed(2);
+    bind('force',   f2, () => {});
+    bind('contact', f2, () => {});
+    bind('pos',     f2, () => {});
+    bind('sus',     f2, () => this.pushBody());
+    bind('coup',    f2, () => this.pushBody());
+    bind('wet',     f2, () => this.pushMix());
+    bind('vol',     f2, () => this.pushMix());
+
+    this.el.damp.onclick = () => this.setDamp(!this.damped);
+    this.el.demo.onclick = () => this.toggleDemo();
+
+    addEventListener('resize', () => this.resize());
+    this.resize();
+
+    this.boot = this.boot.bind(this);
+    addEventListener('pointerdown', this.boot, true);
+    addEventListener('keydown', this.boot, true);
+
+    this.bindPointer();
+    this.bindKeys();
+    this.el.scale.value = 0;
+    this.el.root.value = SCALES[0].root;
+    this.rebuild();
+    requestAnimationFrame(() => this.frame());
+  },
+
+  /* Single entry point for enabling audio; safe to call repeatedly. */
+  async boot () {
+    if (AudioEngine.starting) {
+      if (AudioEngine.ctx && AudioEngine.ctx.state === 'suspended') AudioEngine.ctx.resume();
+      return;
+    }
+    this.el.status.textContent = 'loading engine…';
+    try {
+      await AudioEngine.start();
+    } catch (err) {
+      this.el.status.textContent = 'audio failed: ' + err.message;
+      this.el.gate.querySelector('b').textContent = 'Audio unavailable';
+      this.el.gate.querySelector('small').textContent = err.message;
+      return;
+    }
+    this.el.gate.style.display = 'none';
+    this.el.status.textContent =
+      Math.round(AudioEngine.ctx.sampleRate / 1000) + ' kHz · ready';
+    this.rebuild();
+    this.pushBody();
+    this.pushMix();
+  },
+
+  rebuild () {
+    AudioEngine.build(+this.el.scale.value, +this.el.root.value,
+                      +this.el.a4.value, +this.el.helm.value, this.seed);
+    this.layout();
+    this.renderNoteList();
+  },
+
+  pushBody () {
+    AudioEngine.param({
+      sustain: (this.damped ? 0.12 : 1) * +this.el.sus.value,
+      // max 0.011 puts a neighbour field near -27 dB of the struck note at the
+      // default slider setting, matching the measured -25..-35 dB coupling.
+      kappa: 0.011 * +this.el.coup.value,
+    });
+  },
+  pushMix () {
+    if (!AudioEngine.ctx) return;
+    const w = +this.el.wet.value;
+    AudioEngine.wet.gain.value = w * 0.9;
+    AudioEngine.dry.gain.value = 1 - w * 0.35;
+    AudioEngine.master.gain.value = Math.pow(+this.el.vol.value, 1.6) * 1.6;
+  },
+  setDamp (on) {
+    this.damped = on;
+    this.el.damp.classList.toggle('on', on);
+    this.pushBody();
+  },
+
+  resize () {
+    const st = this.cv.parentElement.getBoundingClientRect();
+    const s = Math.max(220, Math.min(st.width, st.height) - 8);
+    this.dpr = Math.min(2, devicePixelRatio || 1);
+    this.W = this.H = s;
+    this.cv.style.width = this.cv.style.height = s + 'px';
+    this.cv.width = this.cv.height = Math.round(s * this.dpr);
+    this.cx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.layout();
+  },
+
+  /* Classic zigzag: notes alternate sides going up the scale. */
+  layout () {
+    const I = AudioEngine.inst;
+    if (!I) return;
+    const cx = this.W / 2, cy = this.H / 2, Rp = this.W * 0.47;
+    const ding = I.notes[0];
+    ding.x = cx; ding.y = cy; ding.r = Rp * 0.185; ding.pan = 0;
+
+    const tone = I.notes.slice(1);
+    const A = [], B = [];
+    tone.forEach((n, i) => (i % 2 ? B : A).push(n));
+    const ring = A.concat(B.reverse());
+    const n = ring.length;
+    ring.forEach((nt, k) => {
+      const ang = Math.PI / 2 + (k + 0.5) * (2 * Math.PI / n);   // start bottom, clockwise
+      const rr = Rp * 0.615;
+      nt.x = cx + Math.cos(ang) * rr;
+      nt.y = cy + Math.sin(ang) * rr;
+      nt.r = Math.max(Rp * 0.085, Math.min(Rp * 0.165,
+             Rp * 0.155 * Math.pow(146.83 / nt.f0, 0.26)));
+      nt.pan = (nt.x - cx) / Rp * 0.85;
+    });
+    AudioEngine.setPans(I.notes);
+    this.Rp = Rp;
+  },
+
+  renderNoteList () {
+    const I = AudioEngine.inst;
+    if (!I) return;
+    this.el.notes.innerHTML = I.notes.map((n, i) =>
+      '<span>' + (i === 0 ? 'ding' : '#' + i) + ' <b>' + n.name + '</b></span>' +
+      n.f0.toFixed(1) + ' Hz').join('<br>');
+  },
+
+  hit (px, py) {
+    const I = AudioEngine.inst;
+    if (!I) return null;
+    let best = null, bd = 1e9;
+    for (const nt of I.notes) {
+      const d = Math.hypot(px - nt.x, py - nt.y);
+      if (d < nt.r * 1.28 && d < bd) { bd = d; best = { nt, pos: Math.min(1, d / nt.r) }; }
+    }
+    if (best) return best;
+    if (Math.hypot(px - this.W / 2, py - this.H / 2) < this.Rp) return { tak:true };
+    return null;
+  },
+
+  velFrom (ev) {
+    let v = +this.el.force.value;
+    if (ev && ev.pointerType && ev.pointerType !== 'mouse' && ev.pressure > 0.01)
+      v = 0.18 + 0.82 * ev.pressure;
+    if (ev && ev.shiftKey) v *= 0.45;
+    if (ev && ev.altKey)   v = Math.min(1, v * 1.45 + 0.2);
+    return v;
+  },
+
+  bindPointer () {
+    const go = (ev) => {
+      ev.preventDefault();
+      if (!AudioEngine.started) return;
+      const b = this.cv.getBoundingClientRect();
+      const h = this.hit(ev.clientX - b.left, ev.clientY - b.top);
+      if (!h) return;
+      if (h.tak) { AudioEngine.tak(this.velFrom(ev) * 0.8); this.ripples.push({ x:ev.clientX-b.left, y:ev.clientY-b.top, t:0, r:14 }); return; }
+      AudioEngine.strike(h.nt.ni, this.velFrom(ev), h.pos, +this.el.contact.value);
+      this.ripples.push({ x:h.nt.x, y:h.nt.y, t:0, r:h.nt.r });
+    };
+    this.cv.addEventListener('pointerdown', go);
+    this.cv.addEventListener('contextmenu', e => e.preventDefault());
+  },
+
+  bindKeys () {
+    const map = { ' ':0, a:1, s:2, d:3, f:4, g:5, h:6, j:7, k:8, l:9, ';':10 };
+    const held = new Set();
+    addEventListener('keydown', (ev) => {
+      const I = AudioEngine.inst;
+      if (!I || ev.metaKey || ev.ctrlKey) return;
+      const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+      if (key === 'm') { this.setDamp(!this.damped); return; }
+      if (key === 't') { AudioEngine.tak(this.velFrom(ev)); return; }
+      let i = map[key];
+      if (i === undefined && /^[1-9]$/.test(key)) i = +key - 1;
+      if (i === undefined || i >= I.nNotes) return;
+      ev.preventDefault();
+      if (held.has(key)) return;
+      held.add(key);
+      const nt = I.notes[i];
+      AudioEngine.strike(i, this.velFrom(ev), +this.el.pos.value, +this.el.contact.value);
+      this.ripples.push({ x:nt.x, y:nt.y, t:0, r:nt.r });
+    });
+    addEventListener('keyup', (ev) => held.delete(ev.key.length === 1 ? ev.key.toLowerCase() : ev.key));
+  },
+
+  toggleDemo () {
+    if (this.demoTimer) {
+      clearTimeout(this.demoTimer); this.demoTimer = null;
+      this.el.demo.classList.remove('on');
+      return;
+    }
+    this.el.demo.classList.add('on');
+    let k = 0;
+    const step = () => {
+      const I = AudioEngine.inst;
+      if (!I) return;
+      const n = I.nNotes;
+      const pat = [0, 3, 5, 2, 6, 1, 4, 7];
+      const i = pat[k % pat.length] % n;
+      const accent = (k % 4 === 0);
+      AudioEngine.strike(i, accent ? 0.85 : 0.34 + Math.random() * 0.28,
+                         Math.random() * 0.35, +this.el.contact.value);
+      const nt = I.notes[i];
+      this.ripples.push({ x:nt.x, y:nt.y, t:0, r:nt.r });
+      k++;
+      this.demoTimer = setTimeout(step, 300 + Math.random() * 160 + (k % 4 === 0 ? 120 : 0));
+    };
+    step();
+  },
+
+  /* ------------------------------------------------------------- drawing */
+  ripples: [],
+
+  frame () {
+    const c = this.cx, I = AudioEngine.inst;
+    c.clearRect(0, 0, this.W, this.H);
+    if (I) {
+      const cx = this.W / 2, cy = this.H / 2, R = this.Rp;
+
+      // shell
+      const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.45, R * 0.05, cx, cy, R * 1.05);
+      g.addColorStop(0, '#5c6470'); g.addColorStop(0.45, '#3a4149');
+      g.addColorStop(0.8, '#262c33'); g.addColorStop(1, '#15191e');
+      c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fillStyle = g; c.fill();
+      c.strokeStyle = 'rgba(217,164,65,.28)'; c.lineWidth = 2; c.stroke();
+      c.beginPath(); c.arc(cx, cy, R * 0.94, 0, 7);
+      c.strokeStyle = 'rgba(255,255,255,.05)'; c.lineWidth = 1; c.stroke();
+      // brushed-steel sheen
+      c.save(); c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip();
+      for (let i = 0; i < 26; i++) {
+        const a = i / 26 * Math.PI * 2;
+        c.beginPath(); c.moveTo(cx, cy);
+        c.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+        c.strokeStyle = 'rgba(255,255,255,' + (0.012 + 0.01 * Math.sin(i)) + ')';
+        c.lineWidth = R * 0.06; c.stroke();
+      }
+      c.restore();
+
+      // tone fields
+      I.notes.forEach((nt, i) => {
+        const f = nt.flash;
+        nt.flash *= 0.9;
+        const rr = nt.r;
+        const gg = c.createRadialGradient(nt.x - rr * 0.3, nt.y - rr * 0.4, rr * 0.05, nt.x, nt.y, rr);
+        const lift = 0.10 + f * 0.5;
+        gg.addColorStop(0, 'rgba(' + (150 + f * 90) + ',' + (160 + f * 70) + ',170,' + (0.42 + lift) + ')');
+        gg.addColorStop(0.7, 'rgba(60,68,78,' + (0.34 + f * 0.3) + ')');
+        gg.addColorStop(1, 'rgba(20,24,29,0.06)');
+        c.beginPath(); c.ellipse(nt.x, nt.y, rr, rr * 0.9, 0, 0, 7);
+        c.fillStyle = gg; c.fill();
+        c.strokeStyle = 'rgba(226,190,120,' + (0.22 + f * 0.6) + ')';
+        c.lineWidth = 1.4; c.stroke();
+        // dimple
+        c.beginPath(); c.arc(nt.x, nt.y, rr * (i === 0 ? 0.3 : 0.24), 0, 7);
+        c.fillStyle = 'rgba(12,15,18,.55)'; c.fill();
+        c.strokeStyle = 'rgba(255,255,255,.12)'; c.stroke();
+        // label
+        c.font = (i === 0 ? 600 : 500) + ' ' + Math.round(rr * (i === 0 ? 0.42 : 0.5)) + 'px ' +
+                 getComputedStyle(document.body).fontFamily;
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillStyle = 'rgba(240,236,226,' + (0.72 + f * 0.28) + ')';
+        c.fillText(nt.name, nt.x, nt.y + rr * 0.58);
+      });
+
+      // strike ripples
+      this.ripples = this.ripples.filter(rp => {
+        rp.t += 0.045;
+        if (rp.t >= 1) return false;
+        c.beginPath();
+        c.arc(rp.x, rp.y, rp.r * (1 + rp.t * 2.4), 0, 7);
+        c.strokeStyle = 'rgba(217,164,65,' + (0.5 * (1 - rp.t)) + ')';
+        c.lineWidth = 2 * (1 - rp.t) + 0.4; c.stroke();
+        return true;
+      });
+    }
+    requestAnimationFrame(() => this.frame());
+  },
+};
+
+if (document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', () => UI.init());
+else UI.init();
+</script>
+</body>
+</html>
