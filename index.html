@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Handpan — modal physical-modeling synthesizer</title>
+<link rel="stylesheet" href="src/ui/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Handpan</h1>
+    <span class="sub">modal physical-modeling synthesizer</span>
+    <span class="spacer"></span>
+    <span id="status">click anywhere to start audio</span>
+  </header>
+
+  <main>
+    <!-- left: instrument controls -->
+    <aside class="left">
+      <div class="grp">
+        <h2>Instrument</h2>
+        <label class="row"><span class="lab">Scale</span><select id="scale"></select></label>
+        <p class="note" id="scaleNote"></p>
+        <label class="row"><span class="lab">Ding / root</span><select id="root"></select></label>
+        <label class="row"><span class="lab">Concert pitch A4 <b id="a4v">440 Hz</b></span>
+          <input type="range" id="a4" min="415" max="450" step="1" value="440"></label>
+        <div class="btns"><button id="reseed">Re-seed build</button></div>
+      </div>
+
+      <div class="grp">
+        <h2>Touch</h2>
+        <label class="row"><span class="lab">Force <b id="forcev">0.72</b></span>
+          <input type="range" id="force" min="0.08" max="1" step="0.01" value="0.72"></label>
+        <label class="row"><span class="lab">Contact softness <b id="contactv">1.00</b></span>
+          <input type="range" id="contact" min="0.4" max="1.8" step="0.02" value="1"></label>
+        <label class="row"><span class="lab">Strike position <b id="posv">0.15</b></span>
+          <input type="range" id="pos" min="0" max="1" step="0.01" value="0.15"></label>
+      </div>
+
+      <div class="grp">
+        <h2>Body</h2>
+        <label class="row"><span class="lab">Sustain <b id="susv">1.00</b></span>
+          <input type="range" id="sus" min="0.25" max="1.6" step="0.01" value="1"></label>
+        <label class="row"><span class="lab">Sympathetic coupling <b id="coupv">0.42</b></span>
+          <input type="range" id="coup" min="0" max="1" step="0.01" value="0.42"></label>
+        <label class="row"><span class="lab">Helmholtz <b id="helmv">85 Hz</b></span>
+          <input type="range" id="helm" min="40" max="110" step="1" value="85"></label>
+        <label class="row"><span class="lab">Room <b id="wetv">0.30</b></span>
+          <input type="range" id="wet" min="0" max="1" step="0.01" value="0.3"></label>
+        <label class="row"><span class="lab">Volume <b id="volv">0.75</b></span>
+          <input type="range" id="vol" min="0" max="1" step="0.01" value="0.75"></label>
+        <div class="btns">
+          <button id="damp">Damp</button>
+          <button id="demo">Demo</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h2>Layout</h2>
+        <div id="notes" class="notelist"></div>
+      </div>
+    </aside>
+
+    <!-- centre: 3D shell -->
+    <div id="stage">
+      <canvas id="view"></canvas>
+      <div class="viewbar">
+        <button id="autorot">Auto-rotate</button>
+        <button id="resetview">Reset view</button>
+      </div>
+      <p class="hint">
+        Drag to orbit · scroll to zoom · tap a field to play · tap bare shell for a <b>tak</b><br>
+        Keys <kbd>space</kbd><kbd>a</kbd>…<kbd>l</kbd> then <kbd>q</kbd>…<kbd>p</kbd> ·
+        <kbd>shift</kbd> soft · <kbd>alt</kbd> hard · <kbd>m</kbd> damp · <kbd>r</kbd> reset view
+      </p>
+      <div id="gate"><div><b>Start</b><small>tap to enable audio</small></div></div>
+    </div>
+
+    <!-- right: chord visualiser -->
+    <aside class="right">
+      <div class="grp fill">
+        <h2>Chords in this layout</h2>
+        <div id="chords" class="chordpanel"></div>
+        <div class="btns"><button id="strum">Strum selected</button></div>
+      </div>
+    </aside>
+  </main>
+</div>
+<script type="module" src="src/ui/app.js"></script>
+</body>
+</html>

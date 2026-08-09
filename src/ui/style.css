@@ -1,0 +1,140 @@
+:root{
+  --bg:#0d0f12; --panel:#181c22; --panel2:#141920; --line:#2a3038;
+  --txt:#e6e3dc; --dim:#8b8f97; --acc:#d9a441; --acc2:#7fbfa8;
+  --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:radial-gradient(1400px 900px at 50% -15%,#1b2027 0%,var(--bg) 62%);
+  color:var(--txt);font-family:var(--font);overscroll-behavior:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.wrap{display:flex;flex-direction:column;height:100%}
+header{display:flex;align-items:baseline;gap:14px;padding:12px 20px 8px;flex-wrap:wrap;flex:0 0 auto}
+header h1{font-size:15px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;margin:0}
+header .sub{font-size:12px;color:var(--dim)}
+header .spacer{flex:1}
+#status{font-size:12px;color:var(--acc)}
+
+main{flex:1;display:flex;gap:14px;padding:0 16px 14px;min-height:0}
+aside{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  overflow-y:auto;display:flex;flex-direction:column
+}
+aside.left{width:264px;flex:0 0 264px}
+aside.right{width:300px;flex:0 0 300px;padding-bottom:8px}
+/* The canvas is absolutely positioned so its size is driven purely by the
+   stage's CSS box. If it participated in layout, its own inline height would
+   feed back into the parent's measured height and could only ever grow. */
+#stage{flex:1;min-width:0;position:relative}
+#view{position:absolute;inset:0;display:block;touch-action:none;cursor:grab}
+#view:active{cursor:grabbing}
+
+.grp{margin-bottom:14px}
+.grp.fill{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:6px}
+.grp>h2{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  margin:0 0 8px;font-weight:600}
+label.row{display:block;margin-bottom:9px;font-size:12px}
+label.row .lab{display:flex;justify-content:space-between;color:var(--dim);margin-bottom:3px}
+label.row .lab b{color:var(--txt);font-weight:500;font-variant-numeric:tabular-nums}
+select,input[type=range]{width:100%}
+select{background:#0f1216;color:var(--txt);border:1px solid var(--line);border-radius:7px;
+  padding:6px 8px;font:inherit;font-size:12px}
+optgroup{color:var(--acc);font-style:normal;font-weight:600}
+option{color:var(--txt);font-weight:400}
+p.note{font-size:11px;color:var(--dim);line-height:1.5;margin:-2px 0 10px}
+
+input[type=range]{-webkit-appearance:none;appearance:none;height:20px;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:#31373f;border-radius:2px}
+input[type=range]::-moz-range-track{height:3px;background:#31373f;border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+  border-radius:50%;background:var(--acc);margin-top:-6px;border:none;
+  box-shadow:0 0 0 3px rgba(217,164,65,.15)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;
+  background:var(--acc)}
+
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+button{flex:1;min-width:72px;background:#0f1216;color:var(--txt);border:1px solid var(--line);
+  border-radius:7px;padding:7px 8px;font:inherit;font-size:12px;cursor:pointer}
+button:hover{border-color:#3d4550;background:#141920}
+button.on{background:rgba(217,164,65,.16);border-color:var(--acc);color:var(--acc)}
+
+.viewbar{position:absolute;top:6px;right:6px;display:flex;gap:6px;z-index:3}
+.viewbar button{min-width:auto;padding:5px 9px;font-size:11px;background:rgba(15,18,22,.82)}
+
+.hint{position:absolute;bottom:2px;left:0;right:0;z-index:2;pointer-events:none;
+  font-size:11px;color:var(--dim);line-height:1.6;text-align:center;
+  margin:0;padding:6px 8px 2px}
+.hint kbd{background:#0f1216;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+  padding:0 4px;font-family:var(--mono);font-size:10px;color:var(--txt);margin:0 1px}
+.hint b{color:var(--acc2);font-weight:500}
+
+#gate{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(13,15,18,.72);backdrop-filter:blur(3px);z-index:5;cursor:pointer;border-radius:12px}
+#gate div{text-align:center}
+#gate b{display:block;font-size:15px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+#gate small{color:var(--dim);font-size:12px;max-width:280px;display:inline-block;line-height:1.5}
+
+/* ------------------------------------------------------------- note list -- */
+.notelist{font-size:11px;font-variant-numeric:tabular-nums}
+.notelist .nl{display:flex;align-items:baseline;gap:6px;padding:1px 0;color:var(--dim)}
+.notelist .nl.bot{opacity:.62}
+.notelist .k{min-width:30px;font-size:10px;letter-spacing:.04em}
+.notelist b{color:var(--acc2);font-weight:500;min-width:34px}
+.notelist i{font-style:normal;font-size:10px}
+
+/* -------------------------------------------------------- chord visualiser -- */
+.chordpanel{display:flex;flex-direction:column;min-height:0;flex:1}
+.cp-head{flex:0 0 auto;margin-bottom:6px}
+.cp-mode{font-size:11px;color:var(--dim);line-height:1.5;margin-bottom:6px}
+.cp-mode b{color:var(--txt);font-weight:600;font-size:12px}
+.cp-dim{color:var(--dim)}
+.cp-pcs{margin-top:4px;display:flex;flex-wrap:wrap;gap:3px}
+.cp-pcs i{font-style:normal;font-size:10px;background:#0f1216;border:1px solid var(--line);
+  border-radius:4px;padding:1px 5px;color:var(--acc2)}
+.cp-filters{display:flex;gap:4px}
+.cp-filters button{min-width:auto;padding:4px 7px;font-size:11px}
+
+.cp-live{flex:0 0 auto;min-height:44px;background:#0f1216;border:1px solid var(--line);
+  border-radius:8px;padding:7px 9px;margin-bottom:8px;font-size:11px;color:var(--dim);
+  display:flex;flex-direction:column;justify-content:center;gap:2px}
+.cp-live .cp-big{font-size:18px;font-weight:600;color:var(--acc);line-height:1.1}
+.cp-live .cp-played{font-family:var(--mono);font-size:10px;color:var(--acc2)}
+.cp-live em{font-style:normal;color:var(--dim);font-size:10px}
+
+.cp-list{flex:1;overflow-y:auto;min-height:0;margin:0 -4px;padding:0 4px}
+.cp-group{margin-bottom:8px}
+.cp-group h4{margin:0 0 3px;font-size:11px;color:var(--acc);font-weight:600;
+  border-bottom:1px solid var(--line);padding-bottom:2px}
+.cp-group h4 em{font-style:normal;color:var(--dim);font-weight:400;font-size:10px;margin-left:4px}
+.cp-item{display:flex;align-items:baseline;gap:8px;padding:3px 5px;border-radius:5px;
+  cursor:pointer;font-size:11px}
+.cp-item:hover{background:rgba(217,164,65,.10)}
+.cp-item.sel{background:rgba(217,164,65,.20);outline:1px solid rgba(217,164,65,.45)}
+.cp-sym{font-weight:600;color:var(--txt);min-width:62px}
+.cp-notes{font-family:var(--mono);font-size:9.5px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp-empty{font-size:11px;color:var(--dim);padding:8px 2px}
+
+/* ------------------------------------------------------------- responsive -- */
+@media (max-width:1100px){
+  aside.left{width:224px;flex:0 0 224px}
+  aside.right{width:250px;flex:0 0 250px}
+}
+@media (max-width:900px){
+  main{flex-direction:column;padding:0 10px 10px;overflow-y:auto}
+  aside.left,aside.right{width:100%;flex:0 0 auto;max-height:none;overflow:visible}
+  aside.right{order:3}
+  /* Fixed height, not min-height: the canvas is absolutely positioned, so the
+     stage needs a definite box to size it against. Aspect-ratio keeps the box
+     matched to the shell's own footprint instead of leaving dead space above
+     and below it. */
+  #stage{order:1;flex:0 0 auto;aspect-ratio:1/0.62;max-height:44vh;min-height:210px}
+  aside.left{order:2}
+  .cp-list{max-height:46vh}
+  .hint{position:static;padding-top:2px}
+  #stage .hint{display:none}         /* keyboard hints are useless on touch */
+}
