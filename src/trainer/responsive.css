@@ -1,5 +1,7 @@
 .card{min-width:0}.workspace{align-items:start}
 .pitch-space{height:240px;overflow:visible;margin-bottom:14px}
+#pitch-trail{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:hidden}
+#pitch-trail line{stroke-width:3;stroke-linecap:round}
 #pitch-space #microphone{position:absolute;z-index:5;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;min-width:210px;padding:17px 24px;font-size:15px;font-weight:600;box-shadow:0 0 0 7px #fffefaab,0 5px 20px #24695c35}
 #pitch-space.listening #microphone{top:auto;bottom:-8px;transform:translateX(-50%);min-width:150px;padding:9px 18px;font-size:12px;box-shadow:0 2px 8px #24695c25}
 #pitch-space:not(.listening) .pitch-marker{visibility:hidden}

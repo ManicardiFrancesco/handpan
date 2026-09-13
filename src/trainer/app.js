@@ -3,10 +3,12 @@ import { noteName, midiToFreq } from '../model/notes.js';
 import { detectPitch, centsFrom } from './pitch.mjs';
 import { Engine } from '../audio/engine.js';
 import { PitchScore } from './score.mjs';
+import { PitchTrail } from './trail.js';
 const pitchScore = new PitchScore();
 const engine = new Engine();
 let playbackRequest = 0;
 const $ = id => document.getElementById(id);
+const pitchTrail = new PitchTrail($('pitch-space'));
 $('pitch-space').append($('microphone'));
 const scorePanel = document.createElement('div');
 scorePanel.className = 'score-panel';
@@ -66,7 +68,7 @@ function render() {
   }
 }
 function clearPitch(resetScore = true) {
-  if (resetScore) { pitchScore.reset(); updateScore(performance.now()); }
+  if (resetScore) { pitchScore.reset(); pitchTrail.reset(); updateScore(performance.now()); }
   hold = 0; smooth = null; $('hold-fill').style.width = '0%';
   $('pitch-space').dataset.state = 'idle'; $('pitch-marker').style.opacity = '.3';
   $('pitch-marker').style.top = '50%'; $('marker-label').textContent = 'Your voice';
@@ -129,6 +131,7 @@ function tick(now) {
   lastAnalysis = now;
   const elapsed = Math.min(now - previous, 120); previous = now;
   updateScore(now);
+  pitchTrail.draw(now);
   if (advanceAt) {
     if (now >= advanceAt) { choose((index + 1) % notes().length); play().catch(audioError); }
     return;
@@ -141,6 +144,7 @@ function tick(now) {
   updateScore(now, cents);
   smooth = smooth === null || Math.abs(cents - smooth) > 150 ? cents : smooth * .55 + cents * .45;
   const tuned = Math.abs(cents) <= +$('tolerance').value;
+  pitchTrail.add(now, smooth, tuned);
   $('pitch-space').dataset.state = tuned ? 'tuned' : cents > 0 ? 'high' : 'low';
   $('pitch-marker').style.opacity = '1'; $('pitch-marker').style.top = `${50 - Math.max(-1, Math.min(1, smooth / 150)) * 39}%`;
   $('marker-label').textContent = tuned ? 'In tune' : cents > 0 ? '↓ Lower' : '↑ Higher';

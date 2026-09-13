@@ -21,7 +21,10 @@ default strike, sustain, sympathetic coupling, and reverb settings.
 
 Run `node tests/trainer.test.mjs` to check pitch detection.
 
-The trainer shows a rolling two-second score from detected voice samples:
+A fading three-second pitch trail shows how your voice approaches the target,
+with gaps during silence and a fresh trail for each target note.
+
+The rolling two-second score uses
 `100 × exp(-RMS pitch error in cents / 50)`. Target deviation (RMS) measures
 accuracy; standard deviation (σ) measures steadiness around your average pitch.
 Silence is excluded, samples expire after two seconds, and selecting a new note
