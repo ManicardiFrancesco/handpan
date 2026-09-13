@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { StableFeedback } from '../src/trainer/feedback.mjs';
+const feedback = new StableFeedback();
+assert.equal(feedback.update(0, 0, 15), 'idle');
+assert.equal(feedback.update(240, 0, 15), 'tuned');
+for(let t=300;t<1800;t+=60) assert.equal(feedback.update(t,t%120 ? 14 : 18,15),'tuned');
+assert.equal(feedback.update(1800,40,15),'tuned');
+assert.equal(feedback.update(2040,40,15),'tuned');
+assert.equal(feedback.update(2160,40,15),'high');
+assert.equal(feedback.update(2220,null,15),'high');
+assert.equal(feedback.update(2400,40,15),'high');
+feedback.update(2460,-40,15);
+assert.equal(feedback.update(2700,-40,15),'low');
+feedback.update(2760,null,15);
+assert.equal(feedback.update(3300,null,15),'idle');
+feedback.reset(); assert.equal(feedback.state,'idle');
+console.log('Stable feedback passed: boundary jitter, sustained changes, brief dropouts, silence and reset.');

@@ -4,6 +4,9 @@ import { detectPitch, centsFrom } from './pitch.mjs';
 import { Engine } from '../audio/engine.js';
 import { PitchScore } from './score.mjs';
 import { PitchTrail } from './trail.js';
+import { StableFeedback } from './feedback.mjs';
+const stableFeedback = new StableFeedback();
+let shownState = null, lastReadout = 0, lastScore = 0;
 const pitchScore = new PitchScore();
 const engine = new Engine();
 let playbackRequest = 0;
@@ -17,6 +20,8 @@ scorePanel.innerHTML = '<div><span>LAST 2 SECONDS</span><strong id="pitch-score"
 document.querySelector('.readouts').before(scorePanel);
 function updateScore(now, cents = null) {
   const result = pitchScore.update(now, cents);
+  if (result && now - lastScore < 150) return;
+  lastScore = now;
   $('pitch-score').innerHTML = `${result ? result.score : '—'}<small> / 100</small>`;
   $('pitch-rms').textContent = result ? `${result.rms.toFixed(1)} cents` : '— cents';
   $('pitch-sigma').textContent = result ? `Stability σ: ${result.deviation.toFixed(1)} cents` : 'Stability σ: — cents';
@@ -31,7 +36,22 @@ let buffers;
 const notes = () => scales[+$('scale').value].iv.map(n => n + scales[+$('scale').value].root + +$('octave').value);
 const target = () => midiToFreq(notes()[index]);
 scales.forEach((s, i) => $('scale').add(new Option(s.name, i)));
-function feedback(title, detail) { $('guidance').textContent = title; $('detail').textContent = detail; }
+function feedback(title, detail) {
+  if ($('guidance').textContent !== title) $('guidance').textContent = title;
+  if ($('detail').textContent !== detail) $('detail').textContent = detail;
+}
+function showPitchFeedback(state) {
+  if (state === shownState) return;
+  shownState = state;
+  $('pitch-space').dataset.state = state;
+  const copy = {
+    idle: ['Let your voice come through.', 'Sing a steady vowel near the microphone.', 'Your voice'],
+    tuned: ['That’s it. Stay here.', 'Keep the sound easy and steady.', 'In tune'],
+    high: ['↓ Sing a little lower.', 'Slide gently down until your voice meets the center.', '↓ Lower'],
+    low: ['↑ Sing a little higher.', 'Glide gently up until your voice meets the center.', '↑ Higher'],
+  }[state];
+  feedback(copy[0], copy[1]); $('marker-label').textContent = copy[2];
+}
 function render() {
   const list = notes();
   const bottomFrom = scales[+$('scale').value].bottomFrom ?? list.length;
@@ -68,6 +88,7 @@ function render() {
   }
 }
 function clearPitch(resetScore = true) {
+  stableFeedback.reset(); shownState = null;
   if (resetScore) { pitchScore.reset(); pitchTrail.reset(); updateScore(performance.now()); }
   hold = 0; smooth = null; $('hold-fill').style.width = '0%';
   $('pitch-space').dataset.state = 'idle'; $('pitch-marker').style.opacity = '.3';
@@ -139,27 +160,39 @@ function tick(now) {
   if (now < suppressUntil) return;
   analyser.getFloatTimeDomainData(buffers);
   const frequency = detectPitch(buffers, context.sampleRate);
-  if (!frequency) { clearPitch(false); feedback('Let your voice come through.', 'Sing a steady vowel near the microphone.'); return; }
+  if (!frequency) {
+    hold = 0; $('hold-fill').style.width = '0%';
+    const state = stableFeedback.update(now, null, +$('tolerance').value);
+    if (state === 'idle') {
+      showPitchFeedback(state); smooth = null;
+      $('pitch-marker').style.opacity = '.3';
+      $('sung-note').textContent = '—'; $('cents').textContent = '— cents';
+    }
+    return;
+  }
   const cents = centsFrom(frequency, target());
   updateScore(now, cents);
   smooth = smooth === null || Math.abs(cents - smooth) > 150 ? cents : smooth * .55 + cents * .45;
   const tuned = Math.abs(cents) <= +$('tolerance').value;
-  pitchTrail.add(now, smooth, tuned);
-  $('pitch-space').dataset.state = tuned ? 'tuned' : cents > 0 ? 'high' : 'low';
+  const state = stableFeedback.update(now, smooth, +$('tolerance').value);
+  pitchTrail.add(now, smooth, state === 'tuned');
+  showPitchFeedback(state);
   $('pitch-marker').style.opacity = '1'; $('pitch-marker').style.top = `${50 - Math.max(-1, Math.min(1, smooth / 150)) * 39}%`;
-  $('marker-label').textContent = tuned ? 'In tune' : cents > 0 ? '↓ Lower' : '↑ Higher';
-  $('sung-note').textContent = noteName(Math.round(69 + 12 * Math.log2(frequency / 440)));
-  $('cents').textContent = `${Math.round(cents) > 0 ? '+' : ''}${Math.round(cents)} cents`;
+  if (now - lastReadout >= 180) {
+    lastReadout = now;
+    $('sung-note').textContent = noteName(Math.round(69 + 12 * Math.log2(frequency / 440)));
+    $('cents').textContent = `${Math.round(smooth) > 0 ? '+' : ''}${Math.round(smooth)} cents`;
+  }
   if (tuned) {
-    hold += elapsed; feedback('That’s it. Stay here.', 'Keep the sound easy and steady.');
-    if (hold >= 2000) {
+    const previousHold = hold;
+    hold += elapsed;
+    if (hold >= 2000 && previousHold < 2000) {
       completed.add(index); render();
       feedback(completed.size === notes().length ? 'Beautiful. Scale complete!' : 'Note found. Nicely done.', $('mode').value === 'guided' ? 'Take a breath. The next note is on its way.' : 'Keep exploring this note, or choose another.');
       if ($('mode').value === 'guided') advanceAt = now + 1100;
     }
   } else {
     hold = 0;
-    feedback(cents > 0 ? '↓ Sing a little lower.' : '↑ Sing a little higher.', Math.abs(cents) > 600 ? 'You’re in a different register. Check the octave or hear the note again.' : cents > 0 ? 'Slide gently down until your voice meets the center.' : 'Glide gently up until your voice meets the center.');
   }
   $('hold-fill').style.width = `${Math.min(100, hold / 20)}%`;
 }

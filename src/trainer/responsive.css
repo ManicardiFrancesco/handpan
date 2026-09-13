@@ -1,4 +1,7 @@
 .card{min-width:0}.workspace{align-items:start}
+.feedback{min-height:88px}.feedback p{min-height:36px}.readouts strong,.score-panel strong{font-variant-numeric:tabular-nums}
+.pitch-marker i{transition:background-color .25s,box-shadow .25s}.pitch-marker{transition:top .16s linear,opacity .25s}
+#hold-fill{transition:width .15s linear}
 .pitch-space{height:240px;overflow:visible;margin-bottom:14px}
 #pitch-trail{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:hidden}
 #pitch-trail line{stroke-width:3;stroke-linecap:round}
@@ -14,4 +17,4 @@
 @media(max-width:700px){header{height:60px}main{padding:18px 12px}.intro{margin-bottom:18px}.intro h1{font-size:29px}.intro .privacy{display:none}.workspace{display:flex;flex-direction:column;gap:16px}.card{width:100%}.studio{order:-1;padding:18px}.instrument{order:0}.settings{order:1}.target-caption{margin-top:14px}.target-note{font-size:50px}.pitch-space{height:200px;margin-top:10px}.feedback h2{font-size:21px}.handpan{width:238px}.settings label{margin-top:14px}.score-panel{margin-top:12px}.readouts strong{font-size:17px}.readouts span{font-size:7px}footer{justify-content:center}}
 @media(max-height:760px) and (min-width:701px){header{height:60px}main{padding-top:18px}.intro{margin-bottom:18px}h1{font-size:32px;margin:6px 0}.studio{padding:18px}.target-caption{margin-top:10px}.target-note{font-size:46px}.pitch-space{height:170px;margin-top:10px}.feedback{min-height:55px}.feedback h2{margin-top:8px;font-size:21px}.score-panel{padding:9px;margin:10px 0}.readouts{padding-top:10px}}
 @media(max-height:500px){header,.intro{display:none}main{padding-top:10px}.studio .target-caption{margin-top:6px}.pitch-space{height:160px}.target-note{font-size:38px}}
-@media(prefers-reduced-motion:reduce){.pitch-marker{transition:none}}
+@media(prefers-reduced-motion:reduce){.pitch-marker,.pitch-marker i,#hold-fill{transition:none}}
