@@ -13,6 +13,22 @@ let playbackRequest = 0;
 const $ = id => document.getElementById(id);
 const pitchTrail = new PitchTrail($('pitch-space'));
 $('pitch-space').append($('microphone'));
+const holdRing = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+holdRing.id = 'hold-ring'; holdRing.setAttribute('viewBox', '0 0 48 48');
+holdRing.setAttribute('role', 'progressbar'); holdRing.setAttribute('aria-label', 'Hold in tune for 2 seconds');
+holdRing.setAttribute('aria-valuemin', '0'); holdRing.setAttribute('aria-valuemax', '2');
+holdRing.innerHTML = '<circle class="hold-ring-track" cx="24" cy="24" r="20"/><circle id="hold-ring-fill" cx="24" cy="24" r="20" pathLength="100"/>';
+$('pitch-marker').append(holdRing);
+document.querySelector('.hold-track').remove();
+document.querySelector('.hold-caption').textContent = 'Fill the ring · hold in tune for 2 seconds';
+function renderHold(now = performance.now()) {
+  const progress = Math.min(1, hold / 2000);
+  $('hold-ring-fill').style.strokeDashoffset = String(100 * (1 - progress));
+  holdRing.setAttribute('aria-valuenow', (progress * 2).toFixed(1));
+  holdRing.setAttribute('aria-valuetext', now < holdAfter ? 'Listening · hold timer starts shortly' : `${(progress * 2).toFixed(1)} of 2 seconds in tune`);
+  holdRing.classList.toggle('waiting', now < holdAfter);
+  holdRing.classList.toggle('complete', progress === 1);
+}
 const scorePanel = document.createElement('div');
 scorePanel.className = 'score-panel';
 scorePanel.title = 'Last 2 seconds of detected voice. Score = 100 × exp(−RMS cents / 50). RMS measures distance from target; σ measures variation around your average pitch. Silence is excluded.';
@@ -31,7 +47,7 @@ const bottomSection = document.createElement('div');
 bottomSection.hidden = true;
 bottomSection.innerHTML = '<div class="eyebrow" style="text-align:center">UNDERSIDE NOTES</div><div id="handpan-bottom" class="handpan underside" aria-label="Handpan underside notes"></div>';
 $('handpan').after(bottomSection);
-let index = 0, completed = new Set(), context, stream, analyser, frame, active = false, hold = 0, previous = 0, lastAnalysis = 0, suppressUntil = 0, advanceAt = 0, smooth = null;
+let index = 0, completed = new Set(), context, stream, analyser, frame, active = false, hold = 0, previous = 0, lastAnalysis = 0, holdAfter = 0, advanceAt = 0, smooth = null;
 let buffers;
 const notes = () => scales[+$('scale').value].iv.map(n => n + scales[+$('scale').value].root + +$('octave').value);
 const target = () => midiToFreq(notes()[index]);
@@ -87,26 +103,28 @@ function render() {
     });
   }
 }
-function clearPitch(resetScore = true) {
+function clearPitch(resetScore = true, keepMarker = false) {
   stableFeedback.reset(); shownState = null;
   if (resetScore) { pitchScore.reset(); pitchTrail.reset(); updateScore(performance.now()); }
-  hold = 0; smooth = null; $('hold-fill').style.width = '0%';
+  hold = 0; smooth = null; renderHold();
+  if (keepMarker) return;
   $('pitch-space').dataset.state = 'idle'; $('pitch-marker').style.opacity = '.3';
   $('pitch-marker').style.top = '50%'; $('marker-label').textContent = 'Your voice';
   $('sung-note').textContent = '—'; $('cents').textContent = '— cents';
 }
-function choose(i) { index = i; advanceAt = 0; clearPitch(); render(); feedback(active ? 'Sing the target note.' : 'Ready when you are.', 'Listen, take a breath, and gently match the pitch.'); }
+function choose(i) { index = i; advanceAt = 0; clearPitch(true, active); render(); feedback(active ? 'Sing the target note.' : 'Ready when you are.', 'Listen, take a breath, and gently match the pitch.'); }
 async function audio() {
   await engine.start();
   context = engine.ctx;
   if (context.state !== 'running') await context.resume();
 }
-function audioError(error) { $('error').textContent = `Audio could not start: ${error.message}`; }
+function audioError(error) { holdAfter = 0; renderHold(); $('error').textContent = `Audio could not start: ${error.message}`; }
 async function play() {
   const request = ++playbackRequest;
+  holdAfter = Infinity; hold = 0; advanceAt = 0; renderHold();
   await audio();
   if (request !== playbackRequest) return;
-  suppressUntil = performance.now() + 1800; clearPitch();
+  shownState = null;
   feedback('Listen to the note.', 'Let the tone settle, then join it with your voice.');
   // Use the original instrument model and its default touch/body/mix settings.
   const scale = scales[+$('scale').value];
@@ -118,10 +136,13 @@ async function play() {
   engine.dry.gain.value = 1 - 0.30 * 0.35;
   engine.master.gain.value = Math.pow(0.75, 1.6) * 1.6;
   engine.strike(index, 0.72, 0.15, 1);
+  holdAfter = performance.now() + 500;
+  renderHold();
 }
 function stop() {
   $('pitch-space').classList.remove('listening');
   playbackRequest++; engine.silence();
+  holdAfter = 0;
   active = false; cancelAnimationFrame(frame); stream?.getTracks().forEach(t => t.stop()); stream = null;
   analyser?.disconnect(); analyser = null; advanceAt = 0; clearPitch();
   $('microphone').textContent = '◉  Start microphone'; $('mic-status').textContent = 'MIC OFF';
@@ -153,18 +174,15 @@ function tick(now) {
   const elapsed = Math.min(now - previous, 120); previous = now;
   updateScore(now);
   pitchTrail.draw(now);
-  if (advanceAt) {
-    if (now >= advanceAt) { choose((index + 1) % notes().length); play().catch(audioError); }
-    return;
-  }
-  if (now < suppressUntil) return;
+  if (advanceAt && now >= advanceAt) { choose((index + 1) % notes().length); play().catch(audioError); }
   analyser.getFloatTimeDomainData(buffers);
   const frequency = detectPitch(buffers, context.sampleRate);
   if (!frequency) {
-    hold = 0; $('hold-fill').style.width = '0%';
+    if (!advanceAt) hold = 0;
+    renderHold(now);
     const state = stableFeedback.update(now, null, +$('tolerance').value);
     if (state === 'idle') {
-      showPitchFeedback(state); smooth = null;
+      if (!advanceAt) showPitchFeedback(state); smooth = null;
       $('pitch-marker').style.opacity = '.3';
       $('sung-note').textContent = '—'; $('cents').textContent = '— cents';
     }
@@ -176,16 +194,17 @@ function tick(now) {
   const tuned = Math.abs(cents) <= +$('tolerance').value;
   const state = stableFeedback.update(now, smooth, +$('tolerance').value);
   pitchTrail.add(now, smooth, state === 'tuned');
-  showPitchFeedback(state);
+  if (!advanceAt) showPitchFeedback(state);
   $('pitch-marker').style.opacity = '1'; $('pitch-marker').style.top = `${50 - Math.max(-1, Math.min(1, smooth / 150)) * 39}%`;
   if (now - lastReadout >= 180) {
     lastReadout = now;
     $('sung-note').textContent = noteName(Math.round(69 + 12 * Math.log2(frequency / 440)));
     $('cents').textContent = `${Math.round(smooth) > 0 ? '+' : ''}${Math.round(smooth)} cents`;
   }
-  if (tuned) {
+  if (advanceAt) { renderHold(now); return; }
+  if (tuned && now >= holdAfter) {
     const previousHold = hold;
-    hold += elapsed;
+    hold += Math.min(elapsed, now - holdAfter);
     if (hold >= 2000 && previousHold < 2000) {
       completed.add(index); render();
       feedback(completed.size === notes().length ? 'Beautiful. Scale complete!' : 'Note found. Nicely done.', $('mode').value === 'guided' ? 'Take a breath. The next note is on its way.' : 'Keep exploring this note, or choose another.');
@@ -194,7 +213,7 @@ function tick(now) {
   } else {
     hold = 0;
   }
-  $('hold-fill').style.width = `${Math.min(100, hold / 20)}%`;
+  renderHold(now);
 }
 $('microphone').onclick = start; $('listen').onclick = () => play().catch(audioError);
 $('next').onclick = () => { choose((index + 1) % notes().length); play().catch(audioError); };
