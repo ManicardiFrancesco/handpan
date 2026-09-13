@@ -1,5 +1,32 @@
 # Handpan
 
+Live apps on GitHub Pages:
+- [Singing trainer](https://manicardifrancesco.github.io/handpan/trainer.html)
+- [Handpan synthesizer](https://manicardifrancesco.github.io/handpan/)
+
+## Singing trainer
+
+Open `http://localhost:8080/trainer.html` after starting the server below.
+Handpan Voice offers microphone pitch detection, visual higher/lower guidance,
+reference tones, 14 classic/exotic handpan layouts (including F Aegean 18), octave adjustment, and guided
+practice that advances after holding a note within the selected tolerance for
+two seconds. You can also stay on a single note. Audio is processed locally and
+is not recorded or uploaded. Use headphones to prevent reference-tone pickup.
+Microphone access requires localhost or HTTPS; allow permission when prompted.
+The detector supports approximately 40–2400 Hz. Progress lasts for the current
+page session; changing scale/register or resetting clears it.
+
+Reference notes use the original handpan synthesizer's physical model, with its
+default strike, sustain, sympathetic coupling, and reverb settings.
+
+Run `node tests/trainer.test.mjs` to check pitch detection.
+
+The trainer shows a rolling two-second score from detected voice samples:
+`100 × exp(-RMS pitch error in cents / 50)`. Target deviation (RMS) measures
+accuracy; standard deviation (σ) measures steadiness around your average pitch.
+Silence is excluded, samples expire after two seconds, and selecting a new note
+resets the window. Run `node tests/trainer-score.test.mjs` to check these statistics.
+
 A handpan synthesizer that builds its sound from a physical model rather than
 samples: one two-pole resonator per vibrational mode, driven by a compliant
 contact force pulse. Runs entirely in the browser, no build step, no
