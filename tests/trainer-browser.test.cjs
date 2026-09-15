@@ -122,7 +122,120 @@ const assert = require('node:assert/strict');
     await page.waitForFunction(()=>document.querySelector('#target-note').textContent==='A3');
     await page.locator('#microphone').click();
     assert.equal(await page.locator('#hold-ring').getAttribute('aria-valuenow'),'0.0');
+    // ---- Progress graph, difficulty ladder, speedrun, arpeggio rounds ----
+    await page.setViewportSize({width:1440,height:1000});
+    // Elements that set their own display must still honour the hidden attribute.
+    assert.equal(await page.locator('#suggestion').isVisible(),false,'Suggestion stays out of the way');
+    assert.equal(await page.locator('#run-bar').isVisible(),false,'No run clock outside speedrun');
+    assert.equal(await page.locator('#lane-caption').isVisible(),false);
+    // The note held above was metered and stored as one point on the graph.
+    const stored = await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.history.v1')));
+    assert.equal(stored.length,1);
+    assert.equal(stored[0].note,'D3'); assert.equal(stored[0].mode,'guided');
+    assert.equal(stored[0].difficulty,'Balanced');
+    // The tone above sat low before it landed, so the RMS carries that approach.
+    assert.ok(stored[0].cents>0&&stored[0].cents<150,`Stored accuracy ${stored[0].cents} cents`);
+    assert.ok(stored[0].best>=0&&stored[0].best<stored[0].cents,'Closest moment beats the RMS');
+    assert.equal(await page.locator('#stat-count').textContent(),'1');
+    assert.equal(await page.locator('#progress-chart svg circle').count(),1);
+    assert.equal(await page.locator('#progress-table tbody tr').count(),1);
+    assert.equal(await page.locator('.chart-empty').isVisible(),false);
+    // One ladder drives tolerance, hold, the ring's label and the chart's band.
+    assert.equal(await page.locator('#difficulty').inputValue(),'3');
+    assert.match(await page.locator('#difficulty-note').textContent(),/Balanced: stay within ±15 cents for 2\.0 seconds/);
+    await page.locator('#easier').click();
+    assert.equal(await page.locator('#difficulty').inputValue(),'2');
+    assert.match(await page.locator('#difficulty-note').textContent(),/Relaxed: stay within ±25 cents for 1\.5 seconds/);
+    assert.equal(await page.locator('.hold-caption').textContent(),'Fill the ring · hold in tune for 1.5 seconds');
+    assert.equal(await page.locator('#hold-ring').getAttribute('aria-valuemax'),'1.5');
+    await page.locator('#easier').click(); await page.locator('#easier').click();
+    assert.equal(await page.locator('#difficulty').inputValue(),'0');
+    assert.equal(await page.locator('#easier').isDisabled(),true,'Cannot go gentler than the first rung');
+    await page.selectOption('#difficulty','5');
+    assert.equal(await page.locator('#harder').isDisabled(),true,'Cannot go tighter than the last rung');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('handpanvoice.level.v1')),'5');
+    await page.selectOption('#difficulty','3');
+    assert.ok((await page.locator('#progress-chart svg text').allTextContents()).includes('in tune ±15'));
+    // Speedrun: the clock starts on your first note and banks a personal best.
+    await page.selectOption('#mode','speedrun');
+    assert.equal(await page.locator('#run-bar').isVisible(),true);
+    assert.equal(await page.locator('#run-clock').textContent(),'0.0s');
+    assert.equal(await page.locator('#run-best').textContent(),'—');
+    assert.equal(await page.locator('#run-progress').textContent(),'0 / 9');
+    assert.equal(await page.locator('.hold-caption').textContent(),'Fill the ring · hold in tune for 0.8 seconds');
+    // Stopping the microphone ends the fake track, so hand out a fresh one.
+    await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{
+      const dest=window.testTone.ctx.createMediaStreamDestination();
+      window.testTone.osc.connect(dest);
+      return dest.stream;
+    }});
+    // Track whatever note is being asked for, so the run actually completes.
+    await page.evaluate(()=>{window.follow=setInterval(()=>{
+      const hz=parseFloat(document.getElementById('target-hz').textContent);
+      if(hz) window.testTone.osc.frequency.value=hz;
+    },40)});
+    await page.locator('#microphone').click();
+    await page.waitForFunction(()=>document.querySelector('#run-clock').classList.contains('running'),null,{timeout:15000});
+    await page.waitForFunction(()=>document.querySelector('#run-progress').textContent==='9 / 9',null,{timeout:60000});
+    await page.waitForFunction(()=>!document.querySelector('#run-clock').classList.contains('running'),null,{timeout:5000});
+    const finalTime = await page.locator('#run-clock').textContent();
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator('#run-clock').textContent(),finalTime,'Clock stops on the last note');
+    assert.match(await page.locator('#guidance').textContent(),/New best · \d/);
+    const runs = await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.runs.v1')));
+    assert.deepEqual(Object.keys(runs),['D Kurd 9|0|3']);
+    assert.ok(runs['D Kurd 9|0|3'].ms>0&&runs['D Kurd 9|0|3'].count===1);
+    assert.equal(await page.locator('#run-best').textContent(),await page.locator('#run-clock').textContent());
+    assert.match(await page.locator('#stat-run-note').textContent(),/^D Kurd 9 · Balanced · 1 run$/);
+    const sprint = await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.history.v1')).filter(e=>e.mode==='speedrun'));
+    assert.ok(sprint.length>=6,`Speedrun notes recorded: ${sprint.length}`);
+    assert.ok(sprint.every(entry=>entry.cents<150),'Outliers never reach the graph');
+    // Arpeggio: the phrase plays, then scrolls at you guitar-hero style.
+    await page.selectOption('#mode','arpeggio');
+    assert.equal(await page.locator('#run-bar').isVisible(),false);
+    assert.equal(await page.locator('#pitch-space').getAttribute('data-lane'),'on');
+    assert.deepEqual(await page.locator('.lane-note').allTextContents(),['D3','Bb3','D4']);
+    assert.equal(await page.locator('.zone').isVisible(),false,'The single-target zone steps aside');
+    assert.equal(await page.locator('.hold-caption').textContent(),'Fill the ring · hold in tune for 0.5 seconds');
+    await page.waitForSelector('.lane-note.sounding');
+    assert.match(await page.locator('#lane-caption').textContent(),/^Triad up · 3 notes/);
+    assert.equal(await page.locator('#step').textContent(),'PHRASE 1 · TRIAD UP');
+    await page.waitForFunction(()=>document.querySelector('#guidance').textContent==='Your turn.',null,{timeout:20000});
+    const before = await page.locator('.lane-note').evaluateAll(els=>els.map(el=>parseFloat(el.style.left)));
+    before.forEach((left,i)=>{ if(i) assert.ok(left>before[i-1],`Block ${i} queues to the right`); });
+    await page.waitForTimeout(500);
+    const after = await page.locator('.lane-note').evaluateAll(els=>els.map(el=>parseFloat(el.style.left)));
+    after.forEach((left,i)=>assert.ok(left<before[i]-4,`Block ${i} travels right to left`));
+    await page.waitForSelector('.lane-note.hit',{timeout:15000});
+    await page.waitForFunction(()=>/^(All 3 notes|\d of 3 notes)/.test(document.querySelector('#guidance').textContent),null,{timeout:20000});
+    assert.equal(await page.locator('.lane-note.hit').count(),3,'Every note of the phrase was sung back');
+    assert.match(await page.locator('#lane-caption').textContent(),/1 clean round in a row$/);
+    assert.equal(await page.locator('#completed').textContent(),'3 / 9');
+    const phrase = await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.history.v1')).filter(e=>e.mode==='arpeggio'));
+    assert.deepEqual(phrase.map(entry=>entry.note),['D3','Bb3','D4']);
+    await page.waitForFunction(()=>document.querySelector('#step').textContent.startsWith('PHRASE 2'),null,{timeout:10000});
+    assert.equal(await page.locator('.lane-note').count(),4,'The next phrase is a new pattern');
+    await page.evaluate(()=>clearInterval(window.follow));
+    await page.locator('#microphone').click();
+    await page.selectOption('#mode','guided');
+    assert.equal(await page.locator('#pitch-space').getAttribute('data-lane'),null);
+    assert.equal(await page.locator('.lane-note').count(),0);
+    assert.equal(await page.locator('.zone').isVisible(),true);
+    // History ranges, then an erase that needs a confirming second tap.
+    await page.locator('.range button[data-range="all"]').click();
+    assert.equal(await page.locator('.range button.on').textContent(),'All');
+    const all = await page.locator('#progress-chart svg circle').count();
+    assert.ok(all>=10,`Points on the graph: ${all}`);
+    await page.locator('#clear-progress').click();
+    assert.equal(await page.locator('#clear-progress').textContent(),'Tap again to erase everything');
+    assert.equal(await page.locator('#progress-chart svg circle').count(),all,'First tap erases nothing');
+    await page.locator('#clear-progress').click();
+    assert.equal(await page.locator('#stat-count').textContent(),'0');
+    assert.equal(await page.locator('#stat-run').textContent(),'—');
+    assert.equal(await page.locator('.chart-empty').isVisible(),true);
+    assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.history.v1'))),[]);
     assert.deepEqual(errors,[]);
-    console.log('Browser passed: audio, microphone lifecycle, notes, scales, octaves, mobile layout, high/low feedback, sustained pitch completion and automatic advance.');
+    console.log('Browser passed: audio, microphone lifecycle, notes, scales, octaves, mobile layout, high/low feedback, sustained pitch completion and automatic advance,'
+      + ' progress graph and history, difficulty ladder, speedrun clock and record, arpeggio lane and round scoring.');
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exit(1)});

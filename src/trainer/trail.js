@@ -10,9 +10,10 @@ export class PitchTrail {
     container.prepend(this.svg);
   }
   reset() { this.points = []; this.svg.replaceChildren(); }
-  add(time, cents, tuned) {
-    this.points.push({ time, y: 500 - Math.max(-1, Math.min(1, cents / 150)) * 390,
-      color: tuned ? '#39846a' : cents > 0 ? '#c58340' : '#638da8' });
+  // offset is the marker's position in the space: +1 at the top, -1 at the bottom.
+  add(time, offset, tuned, high) {
+    this.points.push({ time, y: 500 - Math.max(-1, Math.min(1, offset)) * 390,
+      color: tuned ? '#39846a' : high ? '#c58340' : '#638da8' });
     this.draw(time);
   }
   draw(time) {

@@ -8,18 +8,14 @@ Live apps on GitHub Pages:
 
 Open `http://localhost:8080/trainer.html` after starting the server below.
 Handpan Voice offers microphone pitch detection, visual higher/lower guidance,
-reference tones, 14 classic/exotic handpan layouts (including F Aegean 18), octave adjustment, and guided
-practice that advances after holding a note within the selected tolerance for
-two seconds. You can also stay on a single note. Audio is processed locally and
-is not recorded or uploaded. Use headphones to prevent reference-tone pickup.
-Microphone access requires localhost or HTTPS; allow permission when prompted.
-The detector supports approximately 40–2400 Hz. Progress lasts for the current
-page session; changing scale/register or resetting clears it.
+reference tones, 14 classic/exotic handpan layouts (including F Aegean 18), and
+octave adjustment. Audio is processed locally and is not recorded or uploaded.
+Use headphones to prevent reference-tone pickup. Microphone access requires
+localhost or HTTPS; allow permission when prompted. The detector supports
+approximately 40–2400 Hz.
 
 Reference notes use the original handpan synthesizer's physical model, with its
 default strike, sustain, sympathetic coupling, and reverb settings.
-
-Run `node tests/trainer.test.mjs` to check pitch detection.
 
 A fading three-second pitch trail shows how your voice approaches the target,
 with gaps during silence and a fresh trail for each target note.
@@ -28,7 +24,50 @@ The rolling two-second score uses
 `100 × exp(-RMS pitch error in cents / 50)`. Target deviation (RMS) measures
 accuracy; standard deviation (σ) measures steadiness around your average pitch.
 Silence is excluded, samples expire after two seconds, and selecting a new note
-resets the window. Run `node tests/trainer-score.test.mjs` to check these statistics.
+resets the window.
+
+### Practice modes
+
+- **Guided scale** — hold each note in tune, then it advances on its own.
+- **Stay on one note** — the same note until you choose another.
+- **Speedrun** — the whole scale against the clock. The timer starts on your
+  first sung note and stops on the last note found, the hold shortens to 0.8 s,
+  and notes may be found in any order. Stopping the microphone or hiding the tab
+  voids the run. Your best time is kept per scale, register and difficulty.
+- **Arpeggio** — the handpan plays a short phrase (three or four notes from six
+  patterns), then the phrase scrolls right to left across the pitch space,
+  guitar-hero style. Sing each note while its block crosses the centre line; a
+  block turns green when held long enough and amber when missed. Rounds run
+  continuously, walking the starting degree up the scale, and clean rounds
+  streak. In this mode the vertical axis is absolute pitch across the phrase
+  rather than ±150 cents around one target, so the blocks, the marker and the
+  trail read as one melodic contour.
+
+### Difficulty
+
+One ladder sets both how close you must be and how long you must hold, from
+*Very gentle* (±40 cents, 1.0 s) to *Exacting* (±5 cents, 3.0 s), starting at
+*Balanced* (±15 cents, 2.0 s). **Make it easier** / **Make it harder** move one
+rung; the choice is remembered. If a note takes a long time despite steady
+singing, or several notes land quickly and well inside the target, a single
+inline suggestion offers the next rung — one at a time, gone after 15 s, quiet
+for 45 s afterwards (3 minutes if dismissed), and never during a speedrun.
+
+### Progress graph
+
+Every note you find is stored with the RMS distance from the target across the
+whole time you sang it, so the graph measures accuracy rather than the one lucky
+moment that completed the hold. Moments more than 150 cents off — a wrong note,
+or an octave-jump detection glitch — are discarded, and a note needs at least six
+kept samples to be recorded at all. The panel shows the last 20, 50 or all
+points with a least-squares trend line, the in-tune band for your current
+difficulty, hairlines where practice stopped for half an hour or more, average /
+closest / count / speedrun-best tiles, a hover tooltip, and a table view of the
+same numbers. History lives in `localStorage` (last 400 notes) and survives
+reloads; **Clear history** erases it after a confirming second tap. The
+scale-completion counter still resets when you change scale or register.
+
+## Synthesizer
 
 A handpan synthesizer that builds its sound from a physical model rather than
 samples: one two-pole resonator per vibrational mode, driven by a compliant
@@ -126,6 +165,24 @@ node tests/theory.test.mjs     # 208 assertions: chord theory, no browser needed
 node tests/dsp.test.cjs        # 163 assertions: numeric DSP measurement
 node tests/browser.test.cjs    # 105 assertions: real Chromium, needs a server
 ```
+
+The singing trainer keeps its logic in `.mjs` modules with no DOM, so each piece
+runs under plain node:
+
+```sh
+node tests/trainer.test.mjs             # pitch detection on synthetic signals
+node tests/trainer-score.test.mjs       # rolling accuracy and stability
+node tests/trainer-feedback.test.mjs    # higher/lower hysteresis
+node tests/trainer-progress.test.mjs    # outlier gating, trend, history, records
+node tests/trainer-difficulty.test.mjs  # the ladder and the struggle nudge
+node tests/trainer-arpeggio.test.mjs    # round timing, phases, lane geometry
+node tests/trainer-browser.test.cjs http://127.0.0.1:8080  # the whole trainer
+```
+
+`tests/trainer-browser.test.cjs` drives real Chromium: it compares every tone
+field against the synthesizer's own layout, then feeds an oscillator through
+`getUserMedia` to sing the targets, so the hold, the completion, the graph, the
+speedrun clock and a full arpeggio round are exercised end to end.
 
 `tests/dsp-harness.cjs` loads the real worklet and model code in a `vm` context
 and renders blocks by hand, so the numbers are exactly what the browser
