@@ -6,7 +6,20 @@
 .hold-ring-track{stroke:#d2dfcb;opacity:.8}
 #hold-ring-fill{stroke:#39846a;stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round;transition:stroke-dashoffset .12s linear}
 #hold-ring.waiting .hold-ring-track{stroke-dasharray:3 5;opacity:.6}
+#hold-ring.draining #hold-ring-fill{stroke:#d29151}
+#hold-ring.lost #hold-ring-fill{stroke:#c0714a}
+#hold-ring.lost .hold-ring-track{stroke:#dcae83;opacity:1;animation:hold-lost .5s ease}
 #hold-ring.complete #hold-ring-fill{stroke:#276c50;filter:drop-shadow(0 0 3px #81b58a)}
+@keyframes hold-lost{from{stroke-width:6;opacity:.25}to{stroke-width:3;opacity:1}}
+/* The two bands are sized from the level in JS: inside the inner one progress
+   banks, between them it eases back, outside it empties. */
+.drift-zone{position:absolute;left:5px;right:5px;border:1px dashed #dcc9ae;border-radius:8px;background:#f7f1e655;pointer-events:none}
+/* The in-tune band is only a few pixels tall at the tightest levels, so its label
+   is centred on the target rather than tucked inside the band. */
+.scale-label.middle{top:50%;transform:translateY(-50%)}
+/* At the gentlest level the drift band reaches ±120 cents, so the high and low
+   captions move out to the edges to stay clear of it. */
+.scale-label.high{top:3%}.scale-label.low{bottom:3%}
 .pitch-marker span{left:44px}.hold-caption{margin-top:8px}
 .pitch-space{height:240px;overflow:visible;margin-bottom:14px}
 #pitch-trail{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:hidden}
@@ -14,11 +27,15 @@
 #pitch-space #microphone{position:absolute;z-index:5;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;min-width:210px;padding:17px 24px;font-size:15px;font-weight:600;box-shadow:0 0 0 7px #fffefaab,0 5px 20px #24695c35}
 #pitch-space.listening #microphone{top:auto;bottom:-8px;transform:translateX(-50%);min-width:150px;padding:9px 18px;font-size:12px;box-shadow:0 2px 8px #24695c25}
 #pitch-space:not(.listening) .pitch-marker{visibility:hidden}
-.score-panel{display:flex;align-items:center;justify-content:space-around;gap:12px;border:1px solid #d9e5d0;border-radius:10px;background:#f0f5e9;padding:13px;margin:16px 0 12px}
+.score-panel{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-around;gap:10px 12px;border:1px solid #d9e5d0;border-radius:10px;background:#f0f5e9;padding:13px;margin:16px 0 12px}
+.score-panel>div{flex:1 1 92px;min-width:0}
 .score-panel span{display:block;font-size:9px;letter-spacing:1px;color:#607558}
 .score-panel strong{display:block;font-size:26px;font-weight:500;color:#24695c;margin-top:5px}
 .score-panel strong small{font-size:12px;color:#718174}.score-panel>div>small{display:block;font-size:11px;color:#607558;margin-top:4px}
 .score-panel #pitch-rms{font-size:18px}
+#hold-percent{transition:color .25s}
+#hold-tile[data-zone=drift] #hold-percent,#hold-tile[data-zone=drift] #hold-zone{color:#a8703a}
+#hold-tile[data-zone=off] #hold-percent,#hold-tile[data-zone=off] #hold-zone{color:#a04835}
 @media(max-width:1100px){.workspace{grid-template-columns:minmax(190px,240px) minmax(0,1fr)}.studio{grid-column:2;grid-row:1 / span 2}.settings{grid-column:1;grid-row:1}.instrument{grid-column:1;grid-row:2;padding:18px}.handpan{width:100%;max-width:238px;height:auto;aspect-ratio:1}.tone{width:36px;height:30px}.handpan.underside .tone{width:34px;height:29px}}
 @media(max-width:700px){header{height:60px}main{padding:18px 12px}.intro{margin-bottom:18px}.intro h1{font-size:29px}.intro .privacy{display:none}.workspace{display:flex;flex-direction:column;gap:16px}.card{width:100%}.studio{order:-1;padding:18px}.instrument{order:0}.settings{order:1}.target-caption{margin-top:14px}.target-note{font-size:50px}.pitch-space{height:200px;margin-top:10px}.feedback h2{font-size:21px}.handpan{width:238px}.settings label{margin-top:14px}.score-panel{margin-top:12px}.readouts strong{font-size:17px}.readouts span{font-size:7px}footer{justify-content:center}}
 @media(max-height:760px) and (min-width:701px){header{height:60px}main{padding-top:18px}.intro{margin-bottom:18px}h1{font-size:32px;margin:6px 0}.studio{padding:18px}.target-caption{margin-top:10px}.target-note{font-size:46px}.pitch-space{height:170px;margin-top:10px}.feedback{min-height:55px}.feedback h2{margin-top:8px;font-size:21px}.score-panel{padding:9px;margin:10px 0}.readouts{padding-top:10px}}

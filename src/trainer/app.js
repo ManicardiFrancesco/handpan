@@ -6,6 +6,7 @@ import { PitchScore } from './score.mjs';
 import { PitchTrail } from './trail.js';
 import { StableFeedback } from './feedback.mjs';
 import { LEVELS, DEFAULT_LEVEL, clampLevel, holdFor, levelLabel, StruggleWatch } from './difficulty.mjs';
+import { HoldMeter, driftEdge } from './hold.mjs';
 import { AttemptMeter, History, Records, LEVEL_KEY, formatDuration, runKey, readNumber, writeNumber } from './progress.mjs';
 import { ProgressChart } from './chart.js';
 import { NoteLane } from './lane.js';
@@ -17,6 +18,9 @@ const engine = new Engine();
 let playbackRequest = 0;
 const $ = id => document.getElementById(id);
 const attempt = new AttemptMeter();
+const holdMeter = new HoldMeter();
+// Far enough in the past that the first render never flashes a loss.
+let holdLostAt = -Infinity;
 const struggle = new StruggleWatch();
 const history = new History();
 const records = new Records();
@@ -36,20 +40,66 @@ holdRing.setAttribute('aria-valuemin', '0');
 holdRing.innerHTML = '<circle class="hold-ring-track" cx="24" cy="24" r="20"/><circle id="hold-ring-fill" cx="24" cy="24" r="20" pathLength="100"/>';
 $('pitch-marker').append(holdRing);
 document.querySelector('.hold-track').remove();
+// The drift band: between the in-tune zone and here, progress eases back instead
+// of resetting. Outside it you are singing a different note.
+const driftBand = document.createElement('div');
+driftBand.className = 'drift-zone';
+document.querySelector('.zone').before(driftBand);
+// What each zone is doing to the bank, and what to call the zone itself.
+const ZONE_COPY = {
+  good: ['filling', 'in tune'],
+  drift: ['easing back', 'drifting'],
+  off: ['reset', 'wrong note'],
+  silent: ['easing back', 'no voice'],
+};
 function renderHold(now = performance.now()) {
   const seconds = holdTarget() / 1000;
-  const progress = Math.min(1, hold / holdTarget());
+  const waiting = now < holdAfter;
+  const progress = Math.min(1, holdMeter.held / holdTarget());
+  const zone = waiting ? 'silent' : holdMeter.zone;
   $('hold-ring-fill').style.strokeDashoffset = String(100 * (1 - progress));
   holdRing.setAttribute('aria-valuemax', seconds.toFixed(1));
   holdRing.setAttribute('aria-valuenow', (progress * seconds).toFixed(1));
-  holdRing.setAttribute('aria-valuetext', now < holdAfter ? 'Listening · hold timer starts shortly' : `${(progress * seconds).toFixed(1)} of ${seconds.toFixed(1)} seconds in tune`);
-  holdRing.classList.toggle('waiting', now < holdAfter);
+  holdRing.setAttribute('aria-valuetext', waiting ? 'Listening · hold timer starts shortly'
+    : `${(progress * seconds).toFixed(1)} of ${seconds.toFixed(1)} seconds banked · ${ZONE_COPY[zone][1]}, progress ${ZONE_COPY[zone][0]}`);
+  holdRing.classList.toggle('waiting', waiting);
+  holdRing.classList.toggle('draining', !waiting && zone !== 'good' && progress > 0);
+  holdRing.classList.toggle('lost', now - holdLostAt < 500);
   holdRing.classList.toggle('complete', progress === 1);
+  $('hold-percent').innerHTML = `${Math.round(progress * 100)}<small>%</small>`;
+  $('hold-zone').textContent = waiting ? 'waiting for the tone to settle'
+    : progress === 1 ? 'held · note found'
+      : zone === 'silent' && !progress ? 'waiting for your voice'
+        : `${ZONE_COPY[zone][1]} · ${ZONE_COPY[zone][0]}`;
+  $('hold-tile').dataset.zone = waiting ? 'waiting' : zone;
+}
+// One place decides what a frame does to the bank, so the silent branch, the lane
+// and the single-target path all read the same three zones. Nothing banks or
+// drains until the reference note has finished sounding.
+function updateHold(now, elapsed, cents) {
+  const result = holdMeter.update({
+    elapsed: Math.min(elapsed, Math.max(0, now - holdAfter)),
+    cents, tolerance: tolerance(), target: holdTarget(),
+  });
+  if (result.emptied && result.zone === 'off' && result.lost > 150) holdLostAt = now;
+  return result;
+}
+// The pitch space spans ±150 cents, so a band of ±c cents covers c/150 of the
+// 39% between the centre and the edge. Both bands come from the level rather than
+// being baked into the stylesheet, so what you see is what is being measured.
+function renderZones() {
+  const band = (el, cents) => {
+    const half = Math.min(39, cents / 150 * 39);
+    el.style.top = `${50 - half}%`;
+    el.style.height = `${half * 2}%`;
+  };
+  band(document.querySelector('.zone'), tolerance());
+  band(driftBand, driftEdge(tolerance()));
 }
 const scorePanel = document.createElement('div');
 scorePanel.className = 'score-panel';
-scorePanel.title = 'Last 2 seconds of detected voice. Score = 100 × exp(−RMS cents / 50). RMS measures distance from target; σ measures variation around your average pitch. Silence is excluded.';
-scorePanel.innerHTML = '<div><span>LAST 2 SECONDS</span><strong id="pitch-score">—<small> / 100</small></strong></div><div><span>TARGET DEVIATION · RMS</span><strong id="pitch-rms">— cents</strong><small id="pitch-sigma">Stability σ: — cents</small></div>';
+scorePanel.title = 'Last 2 seconds of detected voice. Score = 100 × exp(−RMS cents / 50). RMS measures distance from target; σ measures variation around your average pitch. Silence is excluded. Hold progress banks time spent in tune, eases back while you drift, and empties on a wrong note.';
+scorePanel.innerHTML = '<div><span>LAST 2 SECONDS</span><strong id="pitch-score">—<small> / 100</small></strong></div><div><span>TARGET DEVIATION · RMS</span><strong id="pitch-rms">— cents</strong><small id="pitch-sigma">Stability σ: — cents</small></div><div id="hold-tile"><span>HOLD PROGRESS</span><strong id="hold-percent">0<small>%</small></strong><small id="hold-zone">waiting for your voice</small></div>';
 document.querySelector('.readouts').before(scorePanel);
 function updateScore(now, cents = null) {
   const result = pitchScore.update(now, cents);
@@ -65,10 +115,11 @@ function renderDifficulty(flash = false) {
   $('difficulty').value = String(level);
   $('easier').disabled = level === 0;
   $('harder').disabled = level === LEVELS.length - 1;
-  $('difficulty-note').textContent = `${LEVELS[level].name}: stay within ±${tolerance()} cents for ${(holdTarget() / 1000).toFixed(1)} seconds.`;
+  $('difficulty-note').textContent = `${LEVELS[level].name}: stay within ±${tolerance()} cents for ${(holdTarget() / 1000).toFixed(1)} seconds. Drifting out eases the ring back; past ±${driftEdge(tolerance())} cents it empties.`;
   $('difficulty-note').classList.toggle('changed', flash);
   if (flash) setTimeout(() => $('difficulty-note').classList.remove('changed'), 900);
   document.querySelector('.hold-caption').textContent = `Fill the ring · hold in tune for ${(holdTarget() / 1000).toFixed(1)} seconds`;
+  renderZones();
   renderHold();
 }
 function setLevel(next, flash = true) {
@@ -155,7 +206,7 @@ function strikeStep(i) {
 }
 function closeStep(now, i) {
   const stats = attempt.result(now);
-  const hit = hold >= lane.hold;
+  const hit = holdMeter.held >= lane.hold;
   lane.results[i] = hit ? 'hit' : 'miss';
   if (hit) {
     completed.add(lane.steps[i].index);
@@ -192,11 +243,11 @@ function laneFrame(now) {
     return;
   }
   if (phase === 'done') { finishRound(now); return; }
-  if (lane.phase !== 'sing') { lane.phase = 'sing'; hold = 0; feedback('Your turn.', 'Sing each note as its block crosses the centre line.'); }
+  if (lane.phase !== 'sing') { lane.phase = 'sing'; holdMeter.reset(); feedback('Your turn.', 'Sing each note as its block crosses the centre line.'); }
   const step = stepIndexAt(lane.steps, at);
   if (step !== lane.step) {
     if (lane.step >= 0) closeStep(now, lane.step);
-    lane.step = step; hold = 0; attempt.reset(); stableFeedback.reset(); shownState = null;
+    lane.step = step; holdMeter.reset(); attempt.reset(); stableFeedback.reset(); shownState = null;
     if (step >= 0) laneStep(step);
   }
   noteLane.render({ round: lane, phase, at, results: lane.results, active: step });
@@ -228,7 +279,7 @@ const bottomSection = document.createElement('div');
 bottomSection.hidden = true;
 bottomSection.innerHTML = '<div class="eyebrow" style="text-align:center">UNDERSIDE NOTES</div><div id="handpan-bottom" class="handpan underside" aria-label="Handpan underside notes"></div>';
 $('handpan').after(bottomSection);
-let index = 0, completed = new Set(), context, stream, analyser, frame, active = false, hold = 0, previous = 0, lastAnalysis = 0, holdAfter = 0, advanceAt = 0, smooth = null;
+let index = 0, completed = new Set(), context, stream, analyser, frame, active = false, previous = 0, lastAnalysis = 0, holdAfter = 0, advanceAt = 0, smooth = null;
 let buffers;
 const notes = () => scales[+$('scale').value].iv.map(n => n + scales[+$('scale').value].root + +$('octave').value);
 const target = () => midiToFreq(notes()[index]);
@@ -297,7 +348,7 @@ function render() {
 function clearPitch(resetScore = true, keepMarker = false) {
   stableFeedback.reset(); shownState = null;
   if (resetScore) { pitchScore.reset(); pitchTrail.reset(); updateScore(performance.now()); }
-  hold = 0; smooth = null; renderHold();
+  holdMeter.reset(); holdLostAt = -Infinity; smooth = null; renderHold();
   if (keepMarker) return;
   $('pitch-space').dataset.state = 'idle'; $('pitch-marker').style.opacity = '.3';
   $('pitch-marker').style.top = '50%'; $('marker-label').textContent = 'Your voice';
@@ -361,7 +412,7 @@ function prepareEngine() {
 }
 async function play() {
   const request = ++playbackRequest;
-  holdAfter = Infinity; hold = 0; advanceAt = 0; renderHold();
+  holdAfter = Infinity; holdMeter.reset(); advanceAt = 0; renderHold();
   await audio();
   if (request !== playbackRequest) return;
   shownState = null;
@@ -422,8 +473,10 @@ function tick(now) {
   const frequency = detectPitch(buffers, context.sampleRate);
   if (!frequency) {
     attempt.silence();
-    // In a lane round the in-tune time already banked for this note stays banked.
-    if (!advanceAt && !lane) hold = 0;
+    // A breath is not a wrong note: silence eases the bank back at the gentlest
+    // drift rate. In a lane round the banked time stays put — the step's own clock
+    // is the pressure there.
+    if (!advanceAt && !lane) updateHold(now, elapsed, null);
     renderHold(now);
     const state = stableFeedback.update(now, null, tolerance());
     if (state === 'idle') {
@@ -445,7 +498,6 @@ function tick(now) {
     }
   }
   smooth = smooth === null || Math.abs(cents - smooth) > 150 ? cents : smooth * .55 + cents * .45;
-  const tuned = Math.abs(cents) <= tolerance();
   const state = stableFeedback.update(now, smooth, tolerance());
   const offset = offsetFor(smooth);
   pitchTrail.add(now, offset, state === 'tuned', smooth > 0);
@@ -458,17 +510,11 @@ function tick(now) {
   }
   if (advanceAt) { renderHold(now); return; }
   if (lane) {
-    if (lane.phase === 'sing' && lane.step >= 0 && tuned) hold += elapsed;
+    if (lane.phase === 'sing' && lane.step >= 0) updateHold(now, elapsed, cents);
     renderHold(now);
     return;
   }
-  if (tuned && now >= holdAfter) {
-    const previousHold = hold;
-    hold += Math.min(elapsed, now - holdAfter);
-    if (hold >= holdTarget() && previousHold < holdTarget()) noteFound(now);
-  } else {
-    hold = 0;
-  }
+  if (updateHold(now, elapsed, cents).completed) noteFound(now);
   renderHold(now);
 }
 $('microphone').onclick = start; $('listen').onclick = () => play().catch(audioError);

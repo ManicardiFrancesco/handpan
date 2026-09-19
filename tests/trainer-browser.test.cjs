@@ -117,7 +117,26 @@ const assert = require('node:assert/strict');
     await page.evaluate(()=>testTone.osc.frequency.value=146.83238396);
     await page.waitForFunction(()=>Number(document.querySelector('#hold-ring').getAttribute('aria-valuenow'))>=.5);
     assert.ok(Number(await page.locator('#hold-ring-fill').evaluate(el=>el.style.strokeDashoffset))<100,'Ring fills while holding pitch');
+    // Three zones. Inside the tolerance the bank fills; a drift eases it back
+    // without wiping it; a different note empties it.
+    await page.waitForFunction(()=>document.querySelector('#hold-tile').dataset.zone==='good');
+    const banked = Number(await page.locator('#hold-ring').getAttribute('aria-valuenow'));
+    await page.evaluate(()=>testTone.osc.frequency.value=148.96); // 25 cents sharp: drifting, not wrong
+    await page.waitForFunction(()=>document.querySelector('#hold-tile').dataset.zone==='drift');
+    assert.ok(await page.locator('#hold-ring').evaluate(el=>el.classList.contains('draining')),'The ring shows it draining');
+    await page.waitForTimeout(250);
+    const drifted = Number(await page.locator('#hold-ring').getAttribute('aria-valuenow'));
+    assert.ok(drifted<banked,`Drifting out of tune eases the bank back (${banked} → ${drifted})`);
+    assert.ok(drifted>0,'A moment out of tune is a setback, not a restart');
+    await page.evaluate(()=>testTone.osc.frequency.value=165); // two semitones up: a different note
+    await page.waitForFunction(()=>document.querySelector('#hold-ring').classList.contains('lost'),null,{timeout:4000});
+    assert.equal(await page.locator('#hold-ring').getAttribute('aria-valuenow'),'0.0','A wrong note empties the bank');
+    assert.equal(await page.locator('#hold-percent').textContent(),'0%');
+    assert.equal(await page.locator('#hold-tile').getAttribute('data-zone'),'off');
+    // Back on target, and the drifted-through attempt still lands.
+    await page.evaluate(()=>testTone.osc.frequency.value=146.83238396);
     await page.waitForFunction(()=>document.querySelector('#completed').textContent==='1 / 9');
+    assert.equal(await page.locator('#hold-percent').textContent(),'100%');
     assert.ok(await page.locator('#pitch-score').textContent() !== '— / 100');
     await page.waitForFunction(()=>document.querySelector('#target-note').textContent==='A3');
     await page.locator('#microphone').click();
@@ -148,6 +167,10 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('#difficulty-note').textContent(),/Relaxed: stay within ±25 cents for 1\.5 seconds/);
     assert.equal(await page.locator('.hold-caption').textContent(),'Fill the ring · hold in tune for 1.5 seconds');
     assert.equal(await page.locator('#hold-ring').getAttribute('aria-valuemax'),'1.5');
+    // The two bands in the pitch space are drawn from the level, so what you see
+    // is what is being measured: ±25 cents banks, out to ±75 eases back.
+    const bands = () => page.evaluate(()=>['.zone','.drift-zone'].map(s=>Math.round(parseFloat(document.querySelector(s).style.height))));
+    assert.deepEqual(await bands(),[13,39],'Relaxed draws a wide in-tune band inside a wider drift band');
     await page.locator('#easier').click(); await page.locator('#easier').click();
     assert.equal(await page.locator('#difficulty').inputValue(),'0');
     assert.equal(await page.locator('#easier').isDisabled(),true,'Cannot go gentler than the first rung');
@@ -155,6 +178,8 @@ const assert = require('node:assert/strict');
     assert.equal(await page.locator('#harder').isDisabled(),true,'Cannot go tighter than the last rung');
     assert.equal(await page.evaluate(()=>localStorage.getItem('handpanvoice.level.v1')),'5');
     await page.selectOption('#difficulty','3');
+    assert.deepEqual(await bands(),[8,26],'Balanced tightens the in-tune band, and the drift band holds its quarter-tone floor');
+    assert.match(await page.locator('#difficulty-note').textContent(),/past ±50 cents it empties/);
     assert.ok((await page.locator('#progress-chart svg text').allTextContents()).includes('in tune ±15'));
     // Speedrun: the clock starts on your first note and banks a personal best.
     await page.selectOption('#mode','speedrun');
@@ -196,6 +221,7 @@ const assert = require('node:assert/strict');
     assert.equal(await page.locator('#pitch-space').getAttribute('data-lane'),'on');
     assert.deepEqual(await page.locator('.lane-note').allTextContents(),['D3','Bb3','D4']);
     assert.equal(await page.locator('.zone').isVisible(),false,'The single-target zone steps aside');
+    assert.equal(await page.locator('.drift-zone').isVisible(),false,'And so does its drift band');
     assert.equal(await page.locator('.hold-caption').textContent(),'Fill the ring · hold in tune for 0.5 seconds');
     await page.waitForSelector('.lane-note.sounding');
     assert.match(await page.locator('#lane-caption').textContent(),/^Triad up · 3 notes/);
@@ -236,6 +262,6 @@ const assert = require('node:assert/strict');
     assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('handpanvoice.history.v1'))),[]);
     assert.deepEqual(errors,[]);
     console.log('Browser passed: audio, microphone lifecycle, notes, scales, octaves, mobile layout, high/low feedback, sustained pitch completion and automatic advance,'
-      + ' progress graph and history, difficulty ladder, speedrun clock and record, arpeggio lane and round scoring.');
+      + ' progress graph and history, three-zone hold scoring, difficulty ladder, speedrun clock and record, arpeggio lane and round scoring.');
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exit(1)});

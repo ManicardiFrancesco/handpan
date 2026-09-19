@@ -26,6 +26,28 @@ accuracy; standard deviation (σ) measures steadiness around your average pitch.
 Silence is excluded, samples expire after two seconds, and selecting a new note
 resets the window.
 
+### Holding a note
+
+Progress towards a note is a bank, not a switch, and three zones decide what each
+frame does to it. Inside the tolerance it fills at real time; between the
+tolerance and the **drift edge** — three times the tolerance, never closer in
+than ±50 cents nor further out than ±150 — it eases back at 0.5× real time just
+outside the tolerance, rising to 2× at the far edge; past the drift edge you are
+singing a different note and the bank empties. Silence costs the gentlest drift
+rate, so you can take a breath.
+
+Both bands are drawn in the pitch space from the current level, so what you see
+is what is being measured, and the ring around the marker turns amber while the
+bank is easing back. A wrong note has to persist for 360 ms before the bank
+empties: that outlasts the coaching line's own hysteresis, so an octave-jump
+detection glitch costs nothing and you are always told you have gone wrong before
+anything is taken away. The **hold progress** tile reads the bank as a
+percentage, with the zone it is in.
+
+The practical effect: a slip of one analysis frame costs about 3% of a *Balanced*
+hold instead of all of it, and an ordinary wobbly two-second hold lands in about
+two and a half seconds of singing.
+
 ### Practice modes
 
 - **Guided scale** — hold each note in tune, then it advances on its own.
@@ -173,6 +195,7 @@ runs under plain node:
 node tests/trainer.test.mjs             # pitch detection on synthetic signals
 node tests/trainer-score.test.mjs       # rolling accuracy and stability
 node tests/trainer-feedback.test.mjs    # higher/lower hysteresis
+node tests/trainer-hold.test.mjs        # the three hold zones and the glitch grace
 node tests/trainer-progress.test.mjs    # outlier gating, trend, history, records
 node tests/trainer-difficulty.test.mjs  # the ladder and the struggle nudge
 node tests/trainer-arpeggio.test.mjs    # round timing, phases, lane geometry
@@ -181,8 +204,9 @@ node tests/trainer-browser.test.cjs http://127.0.0.1:8080  # the whole trainer
 
 `tests/trainer-browser.test.cjs` drives real Chromium: it compares every tone
 field against the synthesizer's own layout, then feeds an oscillator through
-`getUserMedia` to sing the targets, so the hold, the completion, the graph, the
-speedrun clock and a full arpeggio round are exercised end to end.
+`getUserMedia` to sing the targets, so the hold and its three zones, the
+completion, the graph, the speedrun clock and a full arpeggio round are exercised
+end to end.
 
 `tests/dsp-harness.cjs` loads the real worklet and model code in a `vm` context
 and renders blocks by hand, so the numbers are exactly what the browser

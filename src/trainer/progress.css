@@ -29,7 +29,7 @@
 .lane-note.miss{background:#f4e7d8;border-color:#d29151;color:#96602c}
 /* The lane's vertical axis is absolute pitch across the phrase, so the
    single-target zone and its high/low coaching labels step aside. */
-.pitch-space[data-lane] .zone,.pitch-space[data-lane] .center-target,.pitch-space[data-lane] .scale-label{display:none}
+.pitch-space[data-lane] .zone,.pitch-space[data-lane] .drift-zone,.pitch-space[data-lane] .center-target,.pitch-space[data-lane] .scale-label{display:none}
 .pitch-space[data-lane] .rail{width:3px;background:#c3d4b8;top:6%;bottom:6%}
 .lane-caption{margin:10px 0 0;font-size:10px;letter-spacing:1px;color:#8b9a86;text-transform:uppercase}
 
