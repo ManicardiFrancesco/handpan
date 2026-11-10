@@ -83,6 +83,17 @@ export class HandpanSurface {
     this.fields = layout.fields.map(f => this.prepare({ ...f, shape: fieldShape(f, layout) }));
   }
 
+  updateFields(layout) {
+    const changes = [], keys = ['x', 'z', 'size', 'angle', 'aspect', 'geometry'];
+    layout.fields.forEach((field, index) => {
+      const before = this.fields[index], shape = fieldShape(field, layout);
+      if (shape === before.shape && keys.every(key => field[key] === before[key])) return;
+      const after = this.prepare({ ...field, shape });
+      this.fields[index] = after; changes.push({ before, after });
+    });
+    return changes;
+  }
+
   base(x, z, side) {
     const r = Math.hypot(x, z), table = this.tables[side], at = Math.min(table.count - 1, r * table.count);
     const index = Math.floor(at), mix = at - index;

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#141614">
+  <meta name="theme-color" content="#111214">
   <meta name="description" content="A handpan, a little space, and you. Play a realistic 3D handpan, explore scales, and create an instrument of your own.">
   <title>Elaia — Handpan Player</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23141614'/%3E%3Cellipse cx='32' cy='32' rx='21' ry='21' fill='none' stroke='%23c2a77e' stroke-width='2'/%3E%3Cellipse cx='32' cy='32' rx='7' ry='7' fill='%23c2a77e'/%3E%3C/svg%3E">
@@ -16,12 +16,13 @@
         <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 34C7 26 6 13 20 5c14 8 13 21 0 29Z"/><path d="M20 5v29M11 16l9 8 9-8M13 10l7 7 7-7"/></svg>
         <span>elaia<span class="brand-dot">.</span><small>HANDPAN PLAYER</small></span>
       </a>
-      <span class="header-caption"><span class="tiny-star">✦</span> A little space. A little resonance.</span>
-      <nav class="header-actions" aria-label="Player controls">
-        <button id="library-btn" class="icon-button" aria-label="Saved layouts" title="Saved layouts"><svg viewBox="0 0 24 24"><path d="M6 4h12v17l-6-4-6 4Z"/></svg></button>
-        <button id="share-btn" class="quiet-button"><svg viewBox="0 0 24 24"><path d="M12 16V3m-4 4 4-4 4 4M5 12v8h14v-8"/></svg><span>Share</span></button>
-        <span class="header-divider"></span>
-        <button id="advanced-btn" class="advanced-button" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>Advanced</span></button>
+      <div class="mode-switch segmented" role="group" aria-label="Player mode">
+        <button id="play-mode-btn" class="active" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></svg>Play</button>
+        <button id="advanced-btn" aria-pressed="false" aria-label="Customize instrument, advanced mode"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span class="desktop-label">Customize</span><span class="mobile-label">Edit</span></button>
+      </div>
+      <nav class="header-actions" aria-label="Instrument collection and sharing">
+        <button id="library-btn" class="icon-button" aria-label="Saved instruments" title="Saved instruments"><svg viewBox="0 0 24 24"><path d="M6 4h12v17l-6-4-6 4Z"/></svg></button>
+        <button id="share-btn" class="quiet-button" aria-label="Share instrument"><svg viewBox="0 0 24 24"><path d="M12 16V3m-4 4 4-4 4 4M5 12v8h14v-8"/></svg><span>Share</span></button>
         <button id="help-btn" class="icon-button help-button" aria-label="How to play"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.3 2.4c-.8.4-.8 1.1-.8 1.8M12 16v.2"/></svg></button>
       </nav>
     </header>
@@ -29,112 +30,117 @@
     <main class="workspace">
       <section id="stage" class="stage" aria-label="3D handpan">
         <div class="instrument-heading">
-          <span class="eyebrow">YOUR MOMENT OF STILLNESS</span>
+          <span class="eyebrow">THE VIRTUAL HANDPAN</span>
           <button id="scale-btn" class="scale-button" aria-haspopup="dialog"><h1 id="scale-title">D Aegean 18</h1><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button>
-          <p><span id="scale-subtitle">18 notes · Ayasa · published instrument</span><span id="custom-badge" class="custom-badge" hidden>Custom</span></p>
+          <p><span id="scale-subtitle">Ayasa · 18 notes · 440 Hz</span><span id="custom-badge" class="custom-badge" hidden>Custom</span></p>
         </div>
-        <div class="stage-badge"><span class="status-dot"></span><span>LIVE IN 3D</span></div>
+        <button id="restore-original" class="restore-original" aria-label="Restore original instrument" title="Restore original instrument" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg><span>Original</span></button>
         <div class="instrument-glow" aria-hidden="true"></div>
         <div class="ground-shadow" aria-hidden="true"></div>
         <canvas id="instrument" aria-label="Interactive 3D handpan. Tap a tone field to play; drag the shell to rotate." tabindex="0"></canvas>
         <div id="field-labels" class="field-labels" aria-hidden="true"></div>
         <div id="graphics-error" class="graphics-error" hidden><p>3D rendering is unavailable in this browser.</p><small>You can still play every note using the note buttons or keyboard.</small></div>
-        <div id="edit-banner" class="edit-banner" hidden><span id="edit-message">Select a tone field to change its note.</span><button id="done-edit" class="text-button">Done <span>✓</span></button></div>
+        <div id="edit-banner" class="edit-banner" hidden><span class="status-dot"></span><span id="edit-message">Drag a field to move it</span><button id="done-edit" class="text-button">Done</button></div>
         <div class="view-controls">
           <div class="segmented view-segment" role="group" aria-label="Instrument view">
-            <button data-view="top" class="active" aria-pressed="true"><svg viewBox="0 0 20 20"><path d="M3 11a7 7 0 0 1 14 0ZM3 14h14"/></svg>Top side</button>
-            <button data-view="bottom" aria-pressed="false"><svg viewBox="0 0 20 20"><path d="M3 9a7 7 0 0 0 14 0ZM3 6h14"/></svg>Bottom side</button>
-            <button data-view="free" aria-pressed="false"><svg viewBox="0 0 20 20"><path d="M15 5a6 6 0 1 0 1 8M15 2v4h-4"/></svg>Free orbit</button>
+            <button data-view="top" class="active" aria-pressed="true"><svg viewBox="0 0 20 20"><path d="M3 11a7 7 0 0 1 14 0ZM3 14h14"/></svg>Top</button>
+            <button data-view="bottom" aria-pressed="false"><svg viewBox="0 0 20 20"><path d="M3 9a7 7 0 0 0 14 0ZM3 6h14"/></svg>Bottom</button>
+            <button data-view="free" aria-pressed="false"><svg viewBox="0 0 20 20"><path d="M15 5a6 6 0 1 0 1 8M15 2v4h-4"/></svg>Orbit</button>
           </div>
           <button id="reset-view" class="icon-button" aria-label="Reset camera" title="Reset camera"><svg viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg></button>
         </div>
         <p id="stage-hint" class="stage-hint"><span class="mouse-icon"></span> Tap to play <span>·</span> Drag to explore <span>·</span> Scroll to zoom</p>
       </section>
 
-      <aside class="side-panel" aria-label="Notes and instrument settings">
-        <div class="panel-intro"><span class="eyebrow">MAKE A LITTLE MUSIC</span><p>No right notes. Just your notes.</p></div>
-        <section class="note-card">
-          <div class="card-heading"><h2>TOP SHELL</h2><span id="top-count">9 NOTES</span></div>
-          <div id="top-notes" class="note-grid"></div>
-        </section>
-        <section class="note-card bottom-card">
-          <div class="card-heading"><h2>BOTTOM SHELL</h2><span id="bottom-count"></span><button id="bottom-view" class="mini-button" aria-label="View bottom shell" title="View bottom shell">↗</button></div>
-          <div id="bottom-notes" class="note-grid"></div>
-          <p id="bottom-empty" class="empty-notes">A little room for more.<br><button id="add-bottom-link" class="text-button">Add notes in advanced mode <span>↗</span></button></p>
-        </section>
-        <section class="note-card chord-card">
-          <div class="card-heading"><h2>HARMONIES</h2><span class="tiny-star">✦</span></div>
-          <div id="chords" class="chord-grid"></div>
-          <p class="card-footnote">Tap a chord. Let it ring.</p>
-        </section>
-
-        <section id="advanced-panel" class="advanced-panel" hidden>
-          <div class="section-divider"><span>YOUR INSTRUMENT, YOUR WAY</span></div>
-          <div class="setting-row"><label>Sound</label><div class="segmented"><button data-sound="ayasa" class="active" aria-pressed="true">Ayasa previews</button><button data-sound="modeled" aria-pressed="false">Modeled</button></div></div>
-          <p id="sample-status" class="editor-hint" aria-live="polite">Ayasa preview recordings · load when you begin</p>
-          <div class="setting-row"><label>Concert pitch</label><div id="pitch-control" class="segmented"><button data-pitch="440" class="active" aria-pressed="true">440 Hz</button><button data-pitch="432" aria-pressed="false">432 Hz</button></div></div>
-          <div class="setting-row"><label>Transpose</label><div class="stepper"><button id="transpose-down" aria-label="Transpose down one semitone">−</button><output id="transpose-value">Original</output><button id="transpose-up" aria-label="Transpose up one semitone">+</button></div></div>
-          <div class="editor-heading"><h2>LAYOUT EDITOR</h2><div class="history-controls"><button id="undo-btn" class="mini-button" aria-label="Undo" disabled>↶</button><button id="redo-btn" class="mini-button" aria-label="Redo" disabled>↷</button></div></div>
-          <div class="segmented editor-tools" role="group" aria-label="Editing tool"><button data-tool="select" class="active" aria-pressed="true">Edit &amp; drag</button><button data-tool="add" aria-pressed="false">+ Add note</button></div>
-          <p id="editor-hint" class="editor-hint">Click to edit a note. Drag a field to move it.</p>
-          <div id="add-settings" class="add-settings" hidden><div class="add-inputs"><label>Note<select id="add-note" aria-label="Note to add"></select></label><label>Shell<select id="add-side" aria-label="Shell for new note"><option value="top">Top</option><option value="bottom">Bottom</option></select></label></div><button id="place-note-btn" class="primary-button">Add note</button><p>Placed in an open spot automatically. Drag it anywhere after adding.</p></div>
-          <div id="field-inspector" class="field-inspector" hidden>
-            <div class="inspector-heading"><span>SELECTED TONE FIELD</span><div class="inspector-actions"><button id="audition-btn" class="mini-button" aria-label="Play selected note">▷</button><button id="close-inspector" class="mini-button" aria-label="Close tone field editor">×</button></div></div>
-            <div class="note-editor"><select id="field-note" aria-label="Tone field note"></select><span id="field-frequency"></span></div>
-            <div class="field-semitones"><button id="field-down" class="subtle-button">− semitone</button><button id="field-up" class="subtle-button">+ semitone</button></div>
-            <div class="setting-row"><label>Shell</label><div class="segmented"><button data-side="top" aria-pressed="true">Top</button><button data-side="bottom" aria-pressed="false">Bottom</button></div></div>
-            <div class="setting-row"><label for="field-shape">Field shape</label><select id="field-shape" aria-label="Tone field shape"><option value="dome">Convex · dome</option><option value="dimple">Concave · dimple</option><option value="pure">Pure · small dimple</option></select></div>
-            <label class="range-label" for="field-size">Field size <output id="field-size-value"></output></label><input id="field-size" type="range" min="0.07" max="0.4" step="0.005">
-            <label class="range-label" for="field-angle">Rotation <output id="field-angle-value"></output></label><input id="field-angle" type="range" min="-180" max="180" step="1">
-            <button id="remove-field" class="danger-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg>Remove tone field</button>
+      <aside id="side-panel" class="side-panel" aria-label="Notes and instrument settings">
+        <div class="panel-intro"><div><h2>Your notes</h2><p>Touch a note. Find a melody.</p></div><span id="notes-total" class="count-badge">18</span></div>
+        <section id="demo-controls" class="demo-controls" aria-label="Scale demo">
+          <div class="demo-heading"><h2>Listen</h2><span id="demo-status">Low to high</span><button id="demo-stop" class="text-button" aria-label="Stop scale demo" hidden>Stop</button></div>
+          <div class="demo-buttons" role="group" aria-label="Play notes from lowest to highest">
+            <button data-demo="top" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z"/></svg>Top notes</button>
+            <button data-demo="bottom" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z"/></svg>Bottom notes</button>
+            <button data-demo="all" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z"/></svg>All notes</button>
           </div>
-          <button id="save-btn" class="primary-button"><svg viewBox="0 0 24 24"><path d="M5 3h12l4 4v14H3V3ZM7 3v6h9V3M7 21v-8h10v8"/></svg>Save this instrument</button>
-          <button id="reset-layout" class="text-button reset-layout">Restore original layout</button>
         </section>
-        <div id="normal-panel-footer" class="panel-footer"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M6 6l12 12M6 18 18 6"/></svg><p>Make it yours.<br><button id="customize-link" class="text-button">Explore advanced mode <span>↗</span></button></p></div>
+        <section id="advanced-panel" class="advanced-panel" hidden aria-label="Customize instrument">
+          <div class="editor-heading"><h2>Customize</h2><div class="editor-tools" role="group" aria-label="Editing tool"><button data-tool="select" class="active" aria-pressed="true" aria-label="Select and move fields" title="Select and move"><svg viewBox="0 0 24 24"><path d="m5 3 14 10-7 1-4 7Z"/></svg></button><button data-tool="add" aria-pressed="false" aria-label="Add a tone field" title="Add note"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div><div class="history-controls"><button id="undo-btn" class="icon-button" aria-label="Undo" title="Undo (⌘/Ctrl Z)" disabled><svg viewBox="0 0 24 24"><path d="m9 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12"/></svg></button><button id="redo-btn" class="icon-button" aria-label="Redo" title="Redo (⌘/Ctrl Shift Z)" disabled><svg viewBox="0 0 24 24"><path d="m15 4 5 5-5 5M20 9H10a6 6 0 0 0 0 12"/></svg></button><button id="save-btn" class="save-button" aria-label="Save instrument">Save</button></div></div>
+          <div id="editor-tabs" class="segmented editor-tabs" role="tablist" aria-label="Customization settings">
+            <button id="layout-tab" role="tab" data-editor-tab="layout" aria-selected="true" aria-controls="layout-settings" class="active">Layout</button>
+            <button id="tuning-tab" role="tab" data-editor-tab="tuning" aria-selected="false" aria-controls="tuning-settings" tabindex="-1">Sound &amp; tuning</button>
+          </div>
+          <div id="layout-settings" role="tabpanel" aria-labelledby="layout-tab">
+            <div id="add-settings" class="add-settings" hidden>
+              <div class="add-inputs"><label>Next note<select id="add-note" aria-label="Note to add"></select></label><label>Shell<select id="add-side" aria-label="Shell for new note"><option value="top">Top</option><option value="bottom">Bottom</option></select></label></div>
+              <div class="add-options"><label><input id="follow-scale" type="checkbox" checked>Follow scale</label><span id="placement-status">Default positions</span></div>
+              <div class="add-actions"><button id="place-note-btn" class="primary-button">Add note</button><button id="cancel-add" class="subtle-button" aria-label="Finish adding notes">Done</button></div>
+              <p id="add-feedback" aria-live="polite">Keep adding. Drag a field to take over its layout.</p>
+            </div>
+            <div id="editor-empty" class="editor-empty"><div class="selection-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><ellipse cx="24" cy="24" rx="19" ry="16"/><ellipse cx="24" cy="24" rx="7" ry="6"/><path d="m35 31 8 6-4 1-2 4Z"/></svg></div><h3>Choose a tone field</h3><p id="editor-hint">Tap a field or a note below to edit. Drag a field to move it.</p></div>
+            <div id="field-inspector" class="field-inspector" hidden>
+              <div class="inspector-heading"><h3 id="selected-field-title">Tone field</h3><div class="inspector-actions"><button id="audition-btn" class="icon-button" aria-label="Play selected note" title="Play selected note"><svg viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></svg></button><button id="close-inspector" class="icon-button" aria-label="Deselect tone field">×</button></div></div>
+              <div class="note-editor"><div class="pitch-stepper"><button id="field-down" aria-label="Lower note by one semitone">−</button><select id="field-note" aria-label="Tone field note"></select><button id="field-up" aria-label="Raise note by one semitone">+</button></div><span id="field-frequency"></span></div>
+              <div class="setting-row"><span id="field-shell-label">Shell</span><div class="segmented" role="group" aria-labelledby="field-shell-label"><button data-side="top" aria-pressed="true">Top</button><button data-side="bottom" aria-pressed="false">Bottom</button></div></div>
+              <details id="field-details" class="field-details"><summary>Field geometry <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></summary><div class="geometry-controls"><label class="control-label" for="field-shape">Shape</label><select id="field-shape" aria-label="Tone field shape"><option value="dome">Convex dome</option><option value="dimple">Concave dimple</option><option value="pure">Pure · small dimple</option></select><p class="geometry-hint">A raised dome, an inward dimple, or a small pure cap.</p><label class="range-label" for="field-size">Size <output id="field-size-value"></output></label><input id="field-size" type="range" min="0.07" max="0.4" step="0.005"><label class="range-label" for="field-angle">Rotation <output id="field-angle-value"></output></label><input id="field-angle" type="range" min="-180" max="180" step="1"></div></details>
+              <button id="remove-field" class="danger-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg>Remove field</button>
+            </div>
+          </div>
+          <div id="tuning-settings" role="tabpanel" aria-labelledby="tuning-tab" hidden>
+            <div class="settings-group"><h3>Pitch</h3><div class="setting-row"><span id="pitch-label">Reference tuning</span><div id="pitch-control" class="segmented" role="group" aria-labelledby="pitch-label"><button data-pitch="440" class="active" aria-pressed="true">440 Hz</button><button data-pitch="432" aria-pressed="false">432 Hz</button></div></div><div class="setting-row"><label for="transpose-value">Transpose</label><div class="stepper"><button id="transpose-down" aria-label="Transpose down one semitone">−</button><output id="transpose-value" aria-live="polite">Original</output><button id="transpose-up" aria-label="Transpose up one semitone">+</button></div></div><p class="setting-description">Shift every note together. Your layout stays in place.</p></div>
+            <div class="settings-group"><h3>Sound</h3><p id="sample-status" class="setting-description" aria-live="polite">Loading recordings…</p><div id="tuning-playback"></div><div id="tuning-space"></div></div>
+            <div class="settings-group"><h3>Appearance</h3><div id="tuning-finish"></div></div>
+          </div>
+        </section>
+        <div id="play-tabs" class="segmented play-tabs" role="tablist" aria-label="Notes and harmonies"><button id="play-notes-tab" role="tab" data-play-tab="notes" aria-selected="true" aria-controls="top-card bottom-card" class="active">Notes</button><button id="play-chords-tab" role="tab" data-play-tab="chords" aria-selected="false" aria-controls="chord-card" tabindex="-1">Chords</button></div>
+        <div class="notes-overview">
+          <section id="top-card" class="note-card" data-play-section="top"><div class="card-heading"><h2>Top shell</h2><span id="top-count">11 notes</span></div><div id="top-notes" class="note-grid"></div></section>
+          <section id="bottom-card" class="note-card bottom-card" data-play-section="bottom"><div class="card-heading"><h2>Bottom shell</h2><span id="bottom-count">7 notes</span><button id="bottom-view" class="mini-button" aria-label="View bottom shell" title="View bottom shell"><svg viewBox="0 0 24 24"><path d="m8 5 7 7-7 7"/></svg></button></div><div id="bottom-notes" class="note-grid"></div><p id="bottom-empty" class="empty-notes">No bottom notes yet.<br><button id="add-bottom-link" class="text-button">Add a bottom note</button></p></section>
+          <section id="chord-card" class="note-card chord-card" data-play-section="chords"><div class="card-heading"><h2>Chords</h2><span>Root octave</span></div><div id="chords" class="chord-grid"></div><p id="chord-detail" class="chord-detail" aria-live="polite">Choose a root octave to hear its notes.</p></section>
+        </div>
+        <div id="editor-footer" class="editor-footer" hidden><span><span class="status-dot"></span>Changes stay on this device</span><button id="reset-layout" class="text-button reset-layout">Reset layout</button></div>
+        <div id="normal-panel-footer" class="panel-footer"><button id="customize-link" class="text-button">Make this instrument your own <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button></div>
       </aside>
     </main>
 
     <div class="bottom-bar">
-      <div class="sound-controls">
+      <div id="playback-home" class="dock-slot"><div class="sound-controls">
         <button id="sound-btn" class="sound-button" aria-label="Enable audio"><span class="sound-wave"><i></i><i></i><i></i><i></i><i></i></span><span id="sound-label">Tap to begin</span></button>
         <span class="toolbar-divider"></span>
         <label class="volume-control" title="Volume"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 9 4 0 5-4v14l-5-4H4ZM17 8a6 6 0 0 1 0 8"/></svg><input id="volume" type="range" aria-label="Volume" min="0" max="1" step="0.01" value="0.7"></label>
         <button id="damp-btn" class="icon-button" aria-label="Damp all notes" title="Damp all notes (M)"><svg viewBox="0 0 24 24"><path d="M5 8v8M10 5v14M15 8v8M20 10v4M3 3l18 18"/></svg></button>
-      </div>
-      <div class="ambience-control"><span class="toolbar-label">SPACE</span><div class="segmented"><button data-space="dry" aria-pressed="false">Dry</button><button data-space="room" class="active" aria-pressed="true">Room</button><button data-space="hall" aria-pressed="false">Hall</button></div></div>
-      <div class="finish-control"><span class="toolbar-label">FINISH</span><button data-finish="ember" class="finish-swatch ember active" aria-label="Ember bronze finish" aria-pressed="true" title="Ember bronze"></button><button data-finish="silver" class="finish-swatch silver" aria-label="Brushed steel finish" aria-pressed="false" title="Brushed steel"></button><button data-finish="rose" class="finish-swatch rose" aria-label="Rose copper finish" aria-pressed="false" title="Rose copper"></button></div>
+      </div></div>
+      <div id="space-home" class="dock-slot"><div class="ambience-control"><span class="toolbar-label">Ambience</span><div class="segmented"><button data-space="dry" aria-pressed="false">Dry</button><button data-space="room" class="active" aria-pressed="true">Room</button><button data-space="hall" aria-pressed="false">Hall</button></div></div></div>
+      <div id="finish-home" class="dock-slot"><div class="finish-control"><span class="toolbar-label">Finish</span><button data-finish="ember" class="finish-swatch ember active" aria-label="Ember bronze finish" aria-pressed="true" title="Ember bronze"></button><button data-finish="silver" class="finish-swatch silver" aria-label="Brushed steel finish" aria-pressed="false" title="Brushed steel"></button><button data-finish="rose" class="finish-swatch rose" aria-label="Rose copper finish" aria-pressed="false" title="Rose copper"></button></div></div>
       <button id="keyboard-btn" class="icon-button" aria-label="Show keyboard shortcuts" aria-pressed="false" title="Keyboard shortcuts"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.1M10 9h.1M14 9h.1M18 9h.1M6 12h.1M10 12h.1M14 12h.1M18 12h.1M7 16h10"/></svg></button>
     </div>
-    <footer class="page-footer"><span>Made for the moments in between.</span><span id="instrument-meta">440 Hz · 18 fields · Ayasa · Published layout</span></footer>
+    <footer class="page-footer"><span>Elaia · A little space to play.</span><span id="instrument-meta">440 Hz · 18 fields · Ayasa · Published layout</span></footer>
   </div>
 
-  <dialog id="scale-dialog" class="modal scale-modal">
-    <div class="modal-heading"><div><span class="eyebrow">FIND YOUR VOICE</span><h2>A world of scales.</h2></div><button class="icon-button close-dialog" aria-label="Close scale picker">×</button></div>
-    <label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="scale-search" type="search" placeholder="Search a scale, key, or number of notes…" aria-label="Search scales"></label>
+  <dialog id="scale-dialog" class="modal scale-modal" aria-labelledby="scale-dialog-title">
+    <div class="modal-heading"><div><span class="eyebrow">THE INSTRUMENT COLLECTION</span><h2 id="scale-dialog-title">Find your sound.</h2></div><button class="icon-button close-dialog" aria-label="Close scale picker">×</button></div>
+    <label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="scale-search" type="search" placeholder="Search instruments, keys, or note counts…" aria-label="Search scales"></label>
     <div id="scale-filters" class="scale-filters"><button data-family="All" class="active">15 Ayasa instruments</button></div>
     <div id="scale-list" class="scale-list"></div>
-    <p class="modal-footnote">Every scale is a different place to wander. Your current instrument is remembered automatically.</p>
+    <p class="modal-footnote">15 published Ayasa layouts. Switching instruments is undoable.</p>
   </dialog>
-  <dialog id="save-dialog" class="modal compact-modal">
-    <div class="modal-heading"><div><span class="eyebrow">KEEP THE GOOD THINGS</span><h2>Save your instrument.</h2></div><button class="icon-button close-dialog" aria-label="Close save dialog">×</button></div>
+  <dialog id="save-dialog" class="modal compact-modal" aria-labelledby="save-dialog-title">
+    <div class="modal-heading"><div><span class="eyebrow">YOUR COLLECTION</span><h2 id="save-dialog-title">Save your instrument.</h2></div><button class="icon-button close-dialog" aria-label="Close save dialog">×</button></div>
     <form id="save-form"><label for="layout-name">Instrument name</label><input id="layout-name" maxlength="64" required placeholder="My evening handpan"><p>Keep a named copy on this device and get a link that recreates the whole instrument.</p><button class="primary-button" type="submit">Save &amp; get link</button></form>
   </dialog>
-  <dialog id="library-dialog" class="modal compact-modal">
-    <div class="modal-heading"><div><span class="eyebrow">YOUR COLLECTION</span><h2>Saved instruments.</h2></div><button class="icon-button close-dialog" aria-label="Close saved layouts">×</button></div>
+  <dialog id="library-dialog" class="modal compact-modal" aria-labelledby="library-dialog-title">
+    <div class="modal-heading"><div><span class="eyebrow">YOUR COLLECTION</span><h2 id="library-dialog-title">Saved instruments.</h2></div><button class="icon-button close-dialog" aria-label="Close saved layouts">×</button></div>
     <div id="saved-list" class="saved-list"></div>
     <div class="library-actions"><button id="new-save-btn" class="primary-button">Save current</button><button id="export-btn" class="subtle-button">Export JSON ↗</button><button id="import-btn" class="subtle-button">Import JSON</button><input id="import-file" type="file" accept=".json,application/json" hidden></div>
   </dialog>
-  <dialog id="share-dialog" class="modal compact-modal">
-    <div class="modal-heading"><div><span class="eyebrow">A LITTLE RESONANCE, TOGETHER</span><h2 id="share-heading">Pass it on.</h2></div><button class="icon-button close-dialog" aria-label="Close sharing">×</button></div>
+  <dialog id="share-dialog" class="modal compact-modal" aria-labelledby="share-heading">
+    <div class="modal-heading"><div><span class="eyebrow">SHARE AN INSTRUMENT</span><h2 id="share-heading">Share your handpan.</h2></div><button class="icon-button close-dialog" aria-label="Close sharing">×</button></div>
     <p>This link carries your notes, both shell layouts, tuning, and finish. Anyone with it can play your instrument.</p>
     <p id="share-saved" class="share-saved" hidden></p>
     <p id="share-local" hidden>This address is local to this device. Open Elaia on a publicly hosted address to share it with someone else.</p>
     <label for="share-url">Instrument link</label><input id="share-url" readonly><button id="copy-link-btn" class="primary-button">Copy link</button><button id="native-share-btn" class="subtle-button native-share" hidden>Share with an app ↗</button>
   </dialog>
-  <dialog id="help-dialog" class="modal compact-modal">
-    <div class="modal-heading"><div><span class="eyebrow">LESS THINKING, MORE PLAYING</span><h2>Meet your handpan.</h2></div><button class="icon-button close-dialog" aria-label="Close help">×</button></div>
-    <div class="help-items"><p><b>Play.</b> Tap a tone field or a note button. Use more than one finger for chords. Tap the bare shell for a percussive touch.</p><p><b>Explore.</b> Drag the shell to orbit. Scroll or pinch to zoom. Flip to the bottom to discover another side. Right or middle drag always orbits, including while editing.</p><p><b>Make it yours.</b> In Advanced, click a field to change its pitch or drag it directly to move it. Add note places your chosen pitch automatically on either shell; drag it to adjust. Tuning, transpose, size, and rotation are here too.</p><p><b>Keep it.</b> Your current layout stays on this device automatically. Save &amp; get link keeps a named copy and gives you a URL that recreates it, including every custom field.</p><p><b>Keyboard.</b> <kbd>Space</kbd> plays the first field, then <kbd>A</kbd> through <kbd>;</kbd>, then <kbd>Q</kbd> through <kbd>P</kbd>. Hold <kbd>Shift</kbd> for a soft touch; <kbd>Alt</kbd> for a stronger strike. <kbd>M</kbd> damps. <kbd>Esc</kbd> exits editing.</p></div>
+  <dialog id="help-dialog" class="modal compact-modal" aria-labelledby="help-dialog-title">
+    <div class="modal-heading"><div><span class="eyebrow">QUICK GUIDE</span><h2 id="help-dialog-title">Meet your handpan.</h2></div><button class="icon-button close-dialog" aria-label="Close help">×</button></div>
+    <div class="help-items"><p><b>Play.</b> Tap a tone field or a note button. Use more than one finger for chords. Tap the bare shell for a finger slap. Chord buttons choose the root octave; the notes you hear appear below.</p><p><b>Listen.</b> Top notes, Bottom notes, and All notes play from lowest to highest. Tap Stop or play a note yourself to take over.</p><p><b>Explore.</b> Drag the shell to orbit. Scroll or pinch to zoom. Flip to the bottom to discover another side. Right or middle drag always orbits, including while editing.</p><p><b>Make it yours.</b> Choose Customize → Layout. The + button opens Add notes. Keep tapping Add to continue up the scale; Done opens the last field for editing. Unassigned creates a silent field to tune later. Top notes fill default positions, then form a symmetric inner cluster of up to five. Dragging, resizing, rotating, or changing a field's shell gives you manual control. Original restores the factory instrument; Undo brings your edits back. Open Sound &amp; tuning for 432/440 Hz and transpose.</p><p><b>Keep it.</b> Your current layout stays on this device automatically. Save &amp; get link keeps a named copy and gives you a URL that recreates it, including every custom field.</p><p><b>Keyboard.</b> <kbd>Space</kbd> plays the first field, then <kbd>A</kbd> through <kbd>;</kbd>, then <kbd>Q</kbd> through <kbd>P</kbd>. Hold <kbd>Shift</kbd> for a soft touch; <kbd>Alt</kbd> for a stronger strike. <kbd>M</kbd> damps. <kbd>Esc</kbd> exits editing.</p></div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <noscript><p class="noscript">Elaia needs JavaScript to render and play your handpan.</p></noscript>

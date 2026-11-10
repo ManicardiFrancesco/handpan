@@ -1,6 +1,7 @@
 import { Engine } from '../src/audio/engine.js';
 import { audioLayout } from './model.mjs';
 import { SamplePlayer } from './sample-player.mjs';
+import { ShellTap } from './shell-tap.mjs';
 
 export class ElaiaAudio {
   constructor() {
@@ -8,6 +9,9 @@ export class ElaiaAudio {
     this.layout = null; this.indices = new Map();
     this.volume = 0.7; this.space = 'room';
     this.sampleStatus = { total: 0, ready: 0, failed: 0 };
+    this.samples = new SamplePlayer(this.engine, status => {
+      this.sampleStatus = status; this.onStatus?.(status);
+    });
   }
   get started() { return this.engine.started; }
   async start() {
@@ -25,11 +29,10 @@ export class ElaiaAudio {
       this.engine.starting = null;
       if (this.engine.ctx) await this.engine.ctx.close().catch(() => {});
       this.engine = new Engine();
+      this.samples.engine = this.engine;
       throw error;
     }
-    this.samples = new SamplePlayer(this.engine, status => {
-      this.sampleStatus = status; this.onStatus?.(status);
-    });
+    this.shellTap = new ShellTap(this.engine);
     this.build(this.layout);
     this.mix();
   }
@@ -38,17 +41,19 @@ export class ElaiaAudio {
     if (!layout) return;
     const { fields, scale } = audioLayout(layout);
     this.indices = new Map(fields.map((f, i) => [f.id, i]));
+    this.samples.configure(layout);
     if (!this.started) return;
+    if (!fields.length) { this.engine.silence(); this.engine.inst = null; return; }
     const instrument = this.engine.build(scale, { a4: layout.a4, idealPartials: true, seed: 19 });
     instrument.notes.forEach((note, i) => { note.pan = fields[i].x * 0.7; });
     this.engine.setPans(instrument.notes);
     this.engine.param({ sustain: 1, kappa: 0.0032 });
-    this.samples?.configure(layout);
   }
   setPans(layout) {
     this.layout = layout;
     this.samples?.setPans(layout);
     if (!this.started) return;
+    if (!this.engine.inst) return;
     this.engine.inst.notes.forEach(n => {
       const f = layout.fields.find(f => this.indices.get(f.id) === n.ni);
       n.pan = f ? f.x * 0.7 : 0;
@@ -65,8 +70,13 @@ export class ElaiaAudio {
   }
   strike(id, velocity = 0.64, position = 0.14) {
     const field = this.layout.fields.find(f => f.id === id);
-    if (!field || !this.samples?.strike(field, velocity)) this.engine.strike(this.indices.get(id), velocity, position);
+    if (!field || field.midi === null) return;
+    if (!this.samples?.strike(field, velocity)) this.engine.strike(this.indices.get(id), velocity, position);
   }
-  tak() { this.engine.tak(0.42); }
-  damp() { this.engine.silence(); this.samples?.damp(); }
+  async prepare(id) {
+    const field = this.layout.fields.find(f => f.id === id);
+    if (field) await this.samples.ready(field);
+  }
+  tak(velocity = 0.72, x = 0, side = 'top') { this.shellTap?.strike(velocity, x, side); }
+  damp() { this.engine.silence(); this.samples?.damp(); this.shellTap?.damp(); }
 }

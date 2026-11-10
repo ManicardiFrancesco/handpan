@@ -1,11 +1,13 @@
 import { HandpanRenderer } from './renderer.js';
 import { ElaiaAudio } from './audio.js';
 import { findChords } from '../src/theory/chords.js';
+import { chordVoicings, demoFields } from './playback.mjs';
+import { addToneField, removeToneField, nextNote, scalePitches, placementStatus, originalLayout } from './arrangement.mjs';
 import {
   PRESETS, MAX_FIELDS, MIDI_MIN, MIDI_MAX, KEYS, clone, createLayout,
-  validateLayout, transposeLayout, fits, nameOf, frequencyOf,
+  validateLayout, transposeLayout, fits, nameOf, frequencyOf, titleFor,
   encodeLayout, decodeLayout, loadStorage,
-  automaticField, arrangementInfo,
+  arrangementInfo,
   restoreCurrent,
 } from './model.mjs';
 import { fieldShape } from './geometry.mjs';
@@ -26,10 +28,10 @@ const markActive = (selector, attr, value) => document.querySelectorAll(selector
 class Elaia {
   constructor() {
     this.audio = new ElaiaAudio();
-    this.audio.onStatus = () => this.renderSampleStatus();
-    this.advanced = false; this.tool = 'select'; this.selected = null;
+    this.audio.onStatus = () => { this.renderSampleStatus(); if (this.demo?.loading) this.renderDemo(); };
+    this.advanced = false; this.editorTab = 'layout'; this.playTab = 'top'; this.tool = 'select'; this.selected = null;
     this.keyboard = false; this.history = []; this.future = []; this.pointers = new Map();
-    this.chordTimers = new Set(); this.playGeneration = 0; this.noteTimers = new Map();
+    this.playTimers = new Set(); this.playGeneration = 0; this.noteTimers = new Map(); this.demo = null;
     this.family = 'All'; this.library = []; this.storageAvailable = true;
     this.layout = createLayout();
     this.restore();
@@ -43,6 +45,7 @@ class Elaia {
     this.fillNoteSelect($('add-note'));
     $('add-note').value = '62';
     this.bind();
+    this.setPlayTab('top', false); this.setTool('select');
     this.rebuild();
     if (this.renderer) {
       this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -101,7 +104,16 @@ class Elaia {
   }
 
   fillNoteSelect(select) {
-    for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) select.add(new Option(nameOf(midi), midi));
+    select.append(new Option('Unassigned', ''));
+    let group, octave;
+    for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+      const current = Math.floor(midi / 12) - 1;
+      if (current !== octave) {
+        octave = current; group = make('optgroup');
+        group.label = `Octave ${octave}`; select.append(group);
+      }
+      group.append(new Option(nameOf(midi), midi));
+    }
   }
 
   resize() {
@@ -109,6 +121,8 @@ class Elaia {
     const rect = $('stage').getBoundingClientRect();
     this.renderer.resize(rect.width, rect.height);
   }
+
+  get editing() { return this.advanced && this.editorTab === 'layout'; }
 
   remember(before = this.layout) {
     this.history.push(clone(before));
@@ -134,41 +148,36 @@ class Elaia {
     if (audio) this.audio.build(this.layout);
     if (this.renderer) {
       this.renderer.layout = this.layout;
-      this.renderer.selected = this.selected; this.renderer.edit = this.advanced;
+      this.renderer.selected = this.selected; this.renderer.edit = this.editing;
       if (geometry) this.renderer.build(this.layout);
       this.renderer.dirty = true;
     }
-    this.renderNotes(); this.renderChords(); this.renderInfo(); this.renderInspector(); this.renderHistory();
+    this.renderNotes(); this.renderChords(); this.renderDemo(); this.renderInfo(); this.renderInspector(); this.renderAdd(); this.renderHistory();
   }
 
   renderInfo() {
     const delta = this.layout.transpose;
-    const preset = PRESETS.find(p => p.id === this.layout.preset);
-    let title = this.layout.title;
-    if (delta && preset && title === preset.title) {
-      const rootName = nameOf(preset.root + delta);
-      title = title.replace(/^[A-G](?:[#♯b])?\d?/, /^[A-G](?:[#♯b])?\d/.test(title) ? rootName : rootName.slice(0, -1));
-    }
-    $('scale-title').textContent = title;
-    $('scale-subtitle').textContent = `${this.layout.fields.length} notes · ${this.layout.custom ? 'an instrument of your own' : 'Ayasa · published instrument'}`;
+    $('scale-title').textContent = titleFor(this.layout);
+    $('scale-subtitle').textContent = `${this.layout.custom ? 'Custom instrument' : 'Ayasa'} · ${this.layout.fields.length} notes · ${this.layout.a4} Hz`;
+    $('notes-total').textContent = this.layout.fields.length;
     $('custom-badge').hidden = !this.layout.custom;
-    $('transpose-value').textContent = delta === 0 ? 'Original' : `${delta > 0 ? '+' : ''}${delta} semitone${Math.abs(delta) === 1 ? '' : 's'}`;
+    $('transpose-value').textContent = delta === 0 ? 'Original' : `${delta > 0 ? '+' : ''}${delta} st`;
     $('instrument-meta').textContent = `${this.layout.a4} Hz  ·  ${this.layout.fields.length} fields  ·  ${arrangementInfo(this.layout)}`;
-    $('transpose-down').disabled = this.layout.fields.some(f => f.midi <= MIDI_MIN);
+    $('transpose-down').disabled = this.layout.fields.some(f => f.midi !== null && f.midi <= MIDI_MIN);
     $('transpose-up').disabled = this.layout.fields.some(f => f.midi >= MIDI_MAX);
+    const canRestore = this.layout.custom || this.layout.transpose !== 0 || this.layout.manualPlacement;
+    $('restore-original').hidden = !canRestore;
+    document.body.classList.toggle('can-restore', !!canRestore);
     markActive('[data-pitch]', 'pitch', this.layout.a4);
     markActive('[data-finish]', 'finish', this.layout.finish);
-    markActive('[data-sound]', 'sound', this.layout.sound || 'modeled');
     this.renderSampleStatus();
   }
 
   renderSampleStatus() {
     const { total, ready, failed } = this.audio.sampleStatus;
-    $('sample-status').textContent = this.layout.sound !== 'ayasa' ? 'Physical handpan synthesis'
-      : !this.audio.started ? 'Ayasa preview recordings · load when you begin'
-      : failed ? `Ayasa previews ${ready}/${total} · modeled sound fills missing notes`
-      : ready < total ? `Ayasa previews loading · ${ready}/${total} ready`
-      : 'Ayasa preview recordings ready';
+    $('sample-status').textContent = ready + failed < total ? `Loading recordings… ${ready}/${total}`
+      : failed ? `${ready}/${total} recordings ready. Synthesis fills the gaps.`
+       : total ? 'Ayasa recordings loaded.' : 'Assign a note to hear this instrument.';
   }
 
   renderNotes() {
@@ -176,15 +185,18 @@ class Elaia {
     for (const side of ['top', 'bottom']) {
       const container = $(`${side}-notes`); container.replaceChildren();
       const fields = ordered.filter(f => f.side === side);
-      $(`${side}-count`).textContent = `${fields.length} NOTE${fields.length === 1 ? '' : 'S'}`;
+      $(`${side}-count`).textContent = `${fields.length} note${fields.length === 1 ? '' : 's'}`;
       for (const f of fields) {
         const button = make('button', 'note-chip');
         button.dataset.id = f.id;
         button.title = fieldShape(f, this.layout) === 'dome' ? 'Convex tone field' : 'Concave tone field';
+        const ding = side === 'top' && Math.hypot(f.x, f.z) < 0.1;
+        if (ding) { button.classList.add('ding'); button.title = 'Ding · ' + button.title; }
         const note = nameOf(f.midi);
-        button.append(document.createTextNode(note.slice(0, -1)), make('sub', '', note.slice(-1)));
-        button.setAttribute('aria-label', `${this.advanced ? 'Edit' : 'Play'} ${note}, ${side} shell`);
-        if (this.selected === f.id && this.advanced) button.classList.add('selected');
+        if (f.midi === null) { button.textContent = '—'; button.classList.add('unassigned'); button.title = 'Assign a note in Customize'; }
+        else button.append(document.createTextNode(note.slice(0, -1)), make('sub', '', note.slice(-1)));
+        button.setAttribute('aria-label', `${f.midi === null ? 'Assign a note to' : this.editing ? 'Edit' : 'Play'} ${note}, ${side} shell${ding ? ', ding' : ''}`);
+        if (this.selected === f.id && this.editing) button.classList.add('selected');
         if (this.keyboard) button.append(make('kbd', '', KEYS[ordered.indexOf(f)] === ' ' ? '␣' : (KEYS[ordered.indexOf(f)] || '')));
         button.addEventListener('pointerdown', event => {
           if (event.pointerType === 'touch') {
@@ -200,7 +212,9 @@ class Elaia {
   }
 
   noteButtonAction(field) {
-    if (this.advanced) {
+    if (field.midi === null && !this.advanced) this.setAdvanced(true);
+    if (this.editing) {
+      if (this.tool === 'add') this.setTool('select');
       this.select(field.id);
       this.setView(field.side);
     }
@@ -208,24 +222,45 @@ class Elaia {
   }
 
   renderChords() {
-    const notes = this.layout.fields.map(f => ({ midi: f.midi, name: nameOf(f.midi), id: f.id }));
-    this.chords = findChords(notes, { minNotes: 3, maxResults: 9, tonicPc: notes[0].midi % 12 });
+    const notes = this.layout.fields.filter(f => f.midi !== null).map(f => ({ midi: f.midi, name: nameOf(f.midi), id: f.id }));
+    this.chords = findChords(notes, { minNotes: 3, maxResults: 9, tonicPc: notes[0]?.midi % 12 });
     $('chords').replaceChildren();
     this.chords.forEach(chord => {
-      const button = make('button', 'chord-chip', chord.symbol.replaceAll('b', '♭').replaceAll('#', '♯'));
-      button.title = chord.notes.map(n => nameOf(n.midi)).join(' · ');
-      button.setAttribute('aria-label', `Play ${chord.fullName}`);
-      button.onclick = () => this.strum(chord, button);
-      $('chords').append(button);
+      chord.voicings = chordVoicings(chord, notes);
+      const group = make('div', 'chord-family'), choices = make('div', 'chord-voicings');
+      group.setAttribute('role', 'group'); group.setAttribute('aria-label', chord.fullName + ' root octaves');
+      group.append(make('span', 'chord-name', chord.plainSymbol.replaceAll('b', '♭').replaceAll('#', '♯')));
+      chord.voicings.forEach(voicing => {
+        const button = make('button', 'chord-chip', voicing.octave);
+        button.dataset.chord = chord.plainSymbol; button.dataset.rootMidi = voicing.rootMidi;
+        button.title = `${voicing.symbol} · ${voicing.notes.map(n => nameOf(n.midi)).join(' · ')}`;
+        button.setAttribute('aria-label', `Play ${chord.fullName}, root ${nameOf(voicing.rootMidi)}: ${voicing.notes.map(n => nameOf(n.midi)).join(', ')}`);
+        button.onclick = () => this.strum(voicing, button);
+        choices.append(button);
+      });
+      group.append(choices); $('chords').append(group);
     });
+    $('chord-detail').textContent = 'Choose a root octave to hear its notes.';
     if (!this.chords.length) $('chords').append(make('p', 'editor-hint', 'Add a few more notes to discover harmonies.'));
+  }
+
+  renderDemo() {
+    document.querySelectorAll('[data-demo]').forEach(button => {
+      const active = this.demo?.side === button.dataset.demo;
+      button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+      button.disabled = !demoFields(this.layout, button.dataset.demo).length;
+    });
+    $('demo-stop').hidden = !this.demo;
+    $('demo-status').textContent = !this.demo ? 'Low to high'
+      : this.demo.loading ? 'Loading recordings…'
+      : `${nameOf(this.demo.field.midi)} · ${this.demo.index + 1}/${this.demo.total}`;
   }
 
   async boot() {
     try {
-      $('sound-label').textContent = this.audio.started ? 'Sound is on' : 'Waking up…';
+      $('sound-label').textContent = this.audio.started ? 'Sound on' : 'Starting…';
       await this.audio.start();
-      $('sound-label').textContent = 'Sound is on'; $('sound-btn').classList.add('is-on');
+      $('sound-label').textContent = 'Sound on'; $('sound-btn').classList.add('is-on');
       $('sound-btn').setAttribute('aria-label', 'Audio is enabled. Play the first note');
       return true;
     } catch (error) {
@@ -235,9 +270,14 @@ class Elaia {
     }
   }
 
-  async play(id, velocity = 0.64, position = 0.14) {
+  async play(id, velocity = 0.64, position = 0.14, { automatic = false } = {}) {
+    const field = this.layout.fields.find(f => f.id === id);
+    if (!field || field.midi === null) return;
+    if (this.demo && !automatic) this.damp();
     const generation = this.playGeneration;
     if (!await this.boot() || generation !== this.playGeneration || !this.layout.fields.some(f => f.id === id)) return;
+    await this.audio.prepare(id);
+    if (generation !== this.playGeneration || !this.layout.fields.some(f => f.id === id)) return;
     this.audio.strike(id, velocity, position); this.renderer?.strike(id);
     const buttons = [...document.querySelectorAll('.note-chip')].filter(b => b.dataset.id === id);
     buttons.forEach(b => b.classList.add('sounding'));
@@ -250,24 +290,56 @@ class Elaia {
 
   cancelStrum() {
     this.playGeneration++;
-    this.chordTimers.forEach(timer => clearTimeout(timer)); this.chordTimers.clear();
+    this.playTimers.forEach(timer => clearTimeout(timer)); this.playTimers.clear();
     document.querySelectorAll('.chord-chip.sounding').forEach(b => b.classList.remove('sounding'));
+    this.demo = null; this.renderDemo();
+  }
+
+  schedule(callback, delay, generation = this.playGeneration) {
+    const timer = setTimeout(() => {
+      this.playTimers.delete(timer);
+      if (generation === this.playGeneration) callback();
+    }, delay);
+    this.playTimers.add(timer);
   }
 
   async strum(chord, button) {
+    if (this.demo) this.audio.damp();
     this.cancelStrum();
     const generation = this.playGeneration;
     if (!await this.boot() || generation !== this.playGeneration) return;
+    await Promise.all(chord.notes.map(note => this.audio.prepare(note.id)));
+    if (generation !== this.playGeneration) return;
     button.classList.add('sounding');
+    $('chord-detail').textContent = `${chord.symbol.replaceAll('b', '♭').replaceAll('#', '♯')} · ${chord.notes.map(n => nameOf(n.midi)).join(' · ')}`;
     chord.notes.forEach((note, i) => {
-      const timer = setTimeout(() => {
-        this.chordTimers.delete(timer);
-        if (generation === this.playGeneration) this.play(note.id, 0.5);
-      }, i * 48);
-      this.chordTimers.add(timer);
+      this.schedule(() => this.play(note.id, 0.5, 0.14, { automatic: true }), i * 48, generation);
     });
-    const timer = setTimeout(() => { button.classList.remove('sounding'); this.chordTimers.delete(timer); }, 1100);
-    this.chordTimers.add(timer);
+    this.schedule(() => button.classList.remove('sounding'), 1100, generation);
+  }
+
+  async playDemo(side) {
+    if (this.demo?.side === side) { this.damp(); return; }
+    this.damp();
+    const fields = demoFields(this.layout, side);
+    if (!fields.length) return;
+    const generation = this.playGeneration;
+    this.demo = { side, loading: true }; this.renderDemo();
+    if (side !== 'all') this.setView(side);
+    if (!await this.boot() || generation !== this.playGeneration) {
+      if (generation === this.playGeneration) { this.demo = null; this.renderDemo(); }
+      return;
+    }
+    await Promise.all(fields.map(field => this.audio.prepare(field.id)));
+    if (generation !== this.playGeneration) return;
+    fields.forEach((field, index) => {
+      this.schedule(() => {
+        this.demo = { side, loading: false, field, index, total: fields.length }; this.renderDemo();
+        this.setPlayTab(field.side, false);
+        this.play(field.id, 0.6, 0.14, { automatic: true });
+      }, index * 600, generation);
+    });
+    this.schedule(() => { this.demo = null; this.renderDemo(); }, fields.length * 600, generation);
   }
 
   damp() {
@@ -280,60 +352,114 @@ class Elaia {
   }
 
   setAdvanced(value) {
+    if (this.demo) this.damp();
     this.advanced = value;
     document.body.classList.toggle('advanced', value);
     $('advanced-btn').setAttribute('aria-pressed', String(value));
+    $('advanced-btn').classList.toggle('active', value);
+    $('play-mode-btn').setAttribute('aria-pressed', String(!value));
+    $('play-mode-btn').classList.toggle('active', !value);
     $('advanced-panel').hidden = !value; $('normal-panel-footer').hidden = value; $('edit-banner').hidden = !value;
-    if (!value) this.tool = 'select';
-    if (this.renderer) { this.renderer.edit = value; this.renderer.dirty = true; }
-    this.setTool(this.tool); this.renderNotes(); this.renderInspector();
+    $('editor-footer').hidden = !value;
+    for (const [selector, target, home] of [
+      ['.sound-controls', 'tuning-playback', 'playback-home'],
+      ['.ambience-control', 'tuning-space', 'space-home'],
+      ['.finish-control', 'tuning-finish', 'finish-home'],
+    ]) $(value ? target : home).append(document.querySelector(selector));
+    if (value) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } else this.tool = 'select';
+    this.setEditorTab('layout');
     this.resize();
   }
 
+  setEditorTab(tab) {
+    this.editorTab = tab;
+    document.body.classList.toggle('tuning-open', this.advanced && tab === 'tuning');
+    $('layout-settings').hidden = tab !== 'layout';
+    $('tuning-settings').hidden = tab !== 'tuning';
+    document.querySelectorAll('[data-editor-tab]').forEach(button => {
+      const active = button.dataset.editorTab === tab;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1;
+    });
+    if (this.renderer) { this.renderer.edit = this.editing; this.renderer.dirty = true; }
+    this.setTool(this.tool); this.renderNotes();
+    $('side-panel')?.scrollTo({ top: 0 });
+  }
+
+  setPlayTab(tab, updateView = true) {
+    if (tab === 'notes') tab = this.noteSide || 'top';
+    if (tab !== 'chords') this.noteSide = tab;
+    this.playTab = tab;
+    document.body.dataset.playTab = tab;
+    document.querySelectorAll('[data-play-tab]').forEach(button => {
+      const active = button.dataset.playTab === tab || (button.dataset.playTab === 'notes' && tab !== 'chords');
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1;
+    });
+    if (updateView && tab !== 'chords') this.setView(tab);
+  }
+
   setTool(tool) {
+    const enteringAdd = tool === 'add' && this.tool !== 'add';
     this.tool = tool;
+    document.body.classList.toggle('adding-note', this.editing && tool === 'add');
     markActive('[data-tool]', 'tool', tool);
     const hints = {
-      select: 'Click a field to edit its note. Drag it to move. Drag the bare shell to orbit; right or middle drag always orbits.',
-      add: 'Choose a note and shell. Add note finds an open spot for you.',
+      select: 'Tap a field or a note below to edit. Drag a field to move it.',
+      add: 'Keep adding. The next note follows your scale.',
     };
     $('editor-hint').textContent = hints[tool];
-    $('edit-message').textContent = tool === 'select' ? 'Click to edit a note. Drag a field to move it.' : 'Add a note, then drag it to make it yours.';
+    $('edit-message').textContent = tool === 'select' ? 'Drag a field to move it' : 'Add notes with one tap';
     $('add-settings').hidden = tool !== 'add';
-    if (tool === 'add') $('add-side').value = this.renderer?.eye?.[1] < 0 ? 'bottom' : 'top';
+    if (enteringAdd) {
+      $('add-side').value = this.renderer?.eye?.[1] < 0 ? 'bottom' : 'top';
+      this.suggestAdd();
+    }
     $('instrument').style.cursor = 'grab';
-    $('stage-hint').innerHTML = this.advanced ? 'Click to edit · Drag fields to move · Right drag to orbit' : '<span class="mouse-icon"></span> Tap to play <span>·</span> Drag to explore <span>·</span> Scroll to zoom';
-    this.renderInspector();
+    $('instrument').setAttribute('aria-label', this.editing
+      ? 'Editable 3D handpan. Select a tone field to edit its note; drag a field to move it or the shell to rotate.'
+      : 'Interactive 3D handpan. Touch a tone field to play; drag the shell to rotate.');
+    const touch = matchMedia('(pointer: coarse)').matches;
+    $('stage-hint').textContent = this.editing
+      ? touch ? 'Drag a field to move · Pinch to zoom' : 'Drag fields to move · Drag the shell to orbit'
+      : touch ? 'Touch to play · Drag to rotate · Pinch to zoom' : 'Click to play · Drag to rotate · Scroll to zoom';
+    this.renderInspector(); this.renderAdd();
   }
 
   setView(view) {
     this.renderer?.setView(view);
     markActive('[data-view]', 'view', view);
-    if (this.tool === 'add' && view !== 'free') $('add-side').value = view;
+    if (view !== 'free') this.setPlayTab(view, false);
+    if (this.tool === 'add' && view !== 'free' && $('add-side').value !== view) {
+      $('add-side').value = view; this.suggestAdd(); this.renderAdd();
+    }
   }
 
   select(id) {
+    const changed = id !== this.selected;
     this.selected = id;
     if (this.renderer) { this.renderer.selected = id; this.renderer.dirty = true; }
-    document.querySelectorAll('.note-chip').forEach(b => b.classList.toggle('selected', this.advanced && b.dataset.id === id));
+    document.querySelectorAll('.note-chip').forEach(b => b.classList.toggle('selected', this.editing && b.dataset.id === id));
     this.renderInspector();
-    if (id && this.advanced && innerWidth <= 620) this.showMobileStage();
-  }
-
-  showMobileStage() {
-    window.scrollTo({ top: Math.max(0, $('stage').getBoundingClientRect().top + scrollY - 80), behavior: 'auto' });
+    if (id && changed && this.editing) document.querySelector('.side-panel').scrollTo({ top: 0, behavior: 'instant' });
   }
 
   selectedField() { return this.layout.fields.find(f => f.id === this.selected); }
 
   renderInspector() {
     const field = this.selectedField();
-    $('field-inspector').hidden = !field || !this.advanced || this.tool !== 'select';
+    $('field-inspector').hidden = !field || !this.advanced || this.tool !== 'select' || this.editorTab !== 'layout';
     document.body.classList.toggle('inspector-open', !$('field-inspector').hidden);
+    $('editor-empty').hidden = !!field || this.tool !== 'select';
     if (!field) return;
-    $('field-note').value = field.midi;
-    $('field-frequency').textContent = `${frequencyOf(field.midi, this.layout.a4).toFixed(2)} Hz`;
-    $('field-down').disabled = field.midi === MIDI_MIN; $('field-up').disabled = field.midi === MIDI_MAX;
+    const ding = field.side === 'top' && Math.hypot(field.x, field.z) < 0.1;
+    $('selected-field-title').textContent = `${ding ? 'Ding' : 'Tone field'} · ${field.side === 'top' ? 'Top' : 'Bottom'}`;
+    $('field-note').value = field.midi ?? '';
+    $('field-frequency').textContent = field.midi === null ? 'Choose a pitch' : `${frequencyOf(field.midi, this.layout.a4).toFixed(2)} Hz`;
+    $('field-down').disabled = field.midi === null || field.midi === MIDI_MIN; $('field-up').disabled = field.midi === null || field.midi === MIDI_MAX;
+    $('audition-btn').disabled = field.midi === null;
     markActive('[data-side]', 'side', field.side);
     $('field-shape').value = fieldShape(field, this.layout);
     $('field-size').value = field.size;
@@ -351,24 +477,56 @@ class Elaia {
       this.toast(change.side ? 'There is no room at that position on the other shell. Move the field first, or add it on that side.' : 'Leave a little space between fields and around the rim.');
       this.renderInspector(); return;
     }
+    if (['side', 'size', 'x', 'z', 'angle', 'aspect'].some(key => change[key] !== undefined)) next.manualPlacement = true;
     this.commit(next, { geometry: change.midi === undefined, audio: change.midi !== undefined || change.side !== undefined, ...options });
+  }
+
+  suggestAdd(after) {
+    if (!$('follow-scale').checked) return;
+    $('add-note').value = nextNote(this.layout, $('add-side').value, after) ?? '';
+  }
+
+  renderAdd() {
+    const side = $('add-side').value, midi = $('add-note').value === '' ? null : +$('add-note').value;
+    const status = placementStatus(this.layout, side);
+    $('placement-status').textContent = status.label;
+    $('follow-scale').disabled = !scalePitches(this.layout).length;
+    $('place-note-btn').textContent = midi === null ? 'Add unassigned field' : `Add ${nameOf(midi)}`;
+    $('place-note-btn').disabled = status.full || this.layout.fields.length >= MAX_FIELDS;
+    if (status.full) $('add-feedback').textContent = 'All five inner slots are used. Choose Bottom or drag a field to use a manual layout.';
+    else if (this.lastAdded && this.layout.fields.some(f => f.id === this.lastAdded)) {
+      const last = this.layout.fields.find(f => f.id === this.lastAdded);
+      $('add-feedback').textContent = `${nameOf(last.midi)} added. ${midi === null ? 'Keep adding, then choose pitches.' : `Next: ${nameOf(midi)}.`}`;
+    } else $('add-feedback').textContent = midi === null ? 'Keep adding empty fields. Choose their pitches later.'
+      : status.automatic ? 'One tap per note. Drag a field to take over the layout.' : 'Existing fields stay put. Drag each new field to adjust.';
   }
 
   addField() {
     if (this.layout.fields.length >= MAX_FIELDS) { this.toast(`This instrument already has ${MAX_FIELDS} tone fields.`); return; }
     const side = $('add-side').value;
-    const field = automaticField(this.layout, { id: 'n-' + crypto.randomUUID().slice(0, 8), midi: +$('add-note').value, side });
-    if (!field) { this.toast(`The ${side} shell is full. Remove or shrink a field, or choose the other shell.`); return; }
-    const next = clone(this.layout); next.fields.push(field);
-    this.commit(next); this.setTool('select'); this.setView(side); this.select(field.id); this.play(field.id);
-    // Keep the whole instrument accessible for the first drag on a phone.
-    if (innerWidth <= 620) this.select(null);
-    this.toast(`${nameOf(field.midi)} added to the ${field.side}. Drag the field to move it.`);
+    const midi = $('add-note').value === '' ? null : +$('add-note').value;
+    const id = 'n-' + crypto.randomUUID().slice(0, 8), next = addToneField(this.layout, { id, midi, side });
+    if (!next) { this.toast(`There is no room on the ${side} shell. Choose the other shell or adjust the layout.`); return; }
+    this.selected = id; this.lastAdded = id;
+    this.commit(next); this.setView(side);
+    if (midi !== null) this.suggestAdd(midi);
+    this.renderAdd(); this.play(id);
+  }
+
+  restoreOriginal() {
+    const next = originalLayout(this.layout);
+    this.damp(); this.selected = null; this.lastAdded = null;
+    this.commit(next, { custom: false }); this.setTool('select'); this.setView('top');
+    this.toast('Original instrument restored. Undo brings your edits back.');
   }
 
   updateLabels() {
     const container = $('field-labels');
-    if (!this.renderer || (!this.advanced && !this.keyboard)) { container.replaceChildren(); return; }
+    if (this.renderer?.view === 'free' && !this.advanced && !this.demo && this.playTab !== 'chords') {
+      const side = this.renderer.eye[1] < 0 ? 'bottom' : 'top';
+      if (side !== this.noteSide) this.setPlayTab(side, false);
+    }
+    if (!this.renderer || (!this.editing && !this.keyboard)) { container.replaceChildren(); return; }
     const labels = this.renderer.positions.filter(p => p.visible && p.x > 10 && p.x < this.renderer.width - 10 && p.y > 100 && p.y < this.renderer.height - 115);
     container.replaceChildren(...labels.map(p => {
       const label = make('span', 'field-label' + (p.field.id === this.selected ? ' selected' : ''), nameOf(p.field.midi));
@@ -391,25 +549,26 @@ class Elaia {
       canvas.setPointerCapture(event.pointerId);
       const p = point(event), pick = this.renderer.pick(p.x, p.y);
       const orbitOnly = event.pointerType === 'mouse' && event.button !== 0;
-      const item = { ...p, startX: p.x, startY: p.y, moved: false, pick, baseline: null, orbitOnly };
+      const velocity = event.shiftKey ? 0.3 : event.altKey ? 0.9 : event.pressure > 0 && event.pressure !== 0.5 ? 0.35 + event.pressure * 0.5 : 0.72;
+      const item = { ...p, startX: p.x, startY: p.y, moved: false, pick, baseline: null, orbitOnly, velocity };
       this.pointers.set(event.pointerId, item);
       if (this.pointers.size === 2) {
         this.pointers.forEach(p => { p.moved = true; });
         this.pinchDistance = this.pointerDistance();
       }
-      if (this.advanced) {
+      if (this.editing) {
         if (pick && !orbitOnly) {
           this.setTool('select');
-          this.selected = pick.field.id;
-          this.renderer.selected = pick.field.id; this.renderer.dirty = true;
+          this.select(pick.field.id);
           this.renderer.interactive = true;
-          // Open the editor after release so it cannot cover an active drag.
-          $('field-inspector').hidden = true; document.body.classList.remove('inspector-open');
           item.baseline = clone(this.layout);
           const surface = this.renderer.surfacePoint(p.x, p.y);
           item.offset = { x: pick.field.x - surface.x, z: pick.field.z - surface.z };
         }
-      } else if (pick && !orbitOnly) this.play(pick.field.id, event.shiftKey ? 0.3 : event.altKey ? 0.9 : event.pressure > 0 && event.pressure !== 0.5 ? 0.35 + event.pressure * 0.5 : 0.64, pick.position * 0.42);
+      } else if (pick && !orbitOnly) {
+        if (pick.field.midi === null) this.noteButtonAction(pick.field);
+        else this.play(pick.field.id, event.shiftKey ? 0.3 : event.altKey ? 0.9 : event.pressure > 0 && event.pressure !== 0.5 ? 0.35 + event.pressure * 0.5 : 0.64, pick.position * 0.42);
+      }
     };
     canvas.onpointermove = event => {
       const item = this.pointers.get(event.pointerId);
@@ -423,12 +582,12 @@ class Elaia {
         this.pinchDistance = distance; return;
       }
       if (!item.moved) return;
-      if (this.advanced && item.pick && !item.orbitOnly) {
+      if (this.editing && item.pick && !item.orbitOnly) {
         const surface = this.renderer.surfacePoint(p.x, p.y), field = this.layout.fields.find(f => f.id === item.pick.field.id);
         if (!surface || !field || surface.side !== field.side) return;
         const x = surface.x + item.offset.x, z = surface.z + item.offset.z;
         if (fits(this.layout, field, x, z)) {
-          field.x = x; field.z = z; this.layout.custom = true;
+          field.x = x; field.z = z; this.layout.custom = true; this.layout.manualPlacement = true;
           this.requestMesh(); this.audio.setPans(this.layout);
         }
       } else {
@@ -450,14 +609,17 @@ class Elaia {
           this.remember(item.baseline); this.persist(); this.renderInfo(); this.renderHistory();
         }
       }
-      if (!cancelled && item.pick && this.advanced && !item.orbitOnly) {
+      if (!cancelled && item.pick && this.editing && !item.orbitOnly) {
         this.select(item.pick.field.id);
         if (!item.moved) this.play(item.pick.field.id);
-        else if (innerWidth <= 620) this.select(null);
       }
       if (!cancelled && !item.moved && !item.pick && !item.orbitOnly) {
         const p = point(event), surface = this.renderer.surfacePoint(p.x, p.y);
-        if (surface && !this.advanced) this.boot().then(ok => { if (ok) this.audio.tak(); });
+        if (surface && !this.editing) {
+          if (this.demo) this.damp();
+          const generation = this.playGeneration;
+          this.boot().then(ok => { if (ok && generation === this.playGeneration) this.audio.tak(item.velocity, surface.x, surface.side); });
+        }
       }
       this.pinchDistance = 0;
       // Prevent a one-finger orbit jump when the other finger leaves a pinch.
@@ -495,7 +657,9 @@ class Elaia {
     const from = back ? this.history : this.future, to = back ? this.future : this.history;
     if (!from.length) return;
     this.cancelStrum(); to.push(clone(this.layout)); this.layout = from.pop();
-    this.rebuild(); this.persist();
+    this.rebuild();
+    if (this.tool === 'add') { this.suggestAdd(); this.renderAdd(); }
+    this.persist();
   }
 
   renderScales() {
@@ -505,7 +669,7 @@ class Elaia {
     $('scale-list').replaceChildren();
     matching.forEach(p => {
       const button = make('button', 'scale-option' + (p.id === this.layout.preset && !this.layout.custom ? ' current' : ''));
-      button.append(make('b', '', p.title), make('span', '', `${p.iv.length} notes · ${p.bottomFrom === undefined ? 'top shell' : 'both shells'} · ${p.profile ? 'published Ayasa layout' : 'digital arrangement'}`),
+      button.append(make('b', '', p.title), make('span', '', `${p.bottomFrom ?? p.iv.length} top · ${p.bottomFrom === undefined ? 0 : p.iv.length - p.bottomFrom} bottom · Ayasa`),
         make('small', '', p.note));
       button.onclick = () => {
         const next = createLayout(p); next.a4 = this.layout.a4; next.finish = this.layout.finish;
@@ -549,7 +713,7 @@ class Elaia {
     this.sharedLayout = clone(layout);
     const url = new URL(location.href); url.hash = 'layout=' + encodeLayout(layout);
     $('share-url').value = url.href;
-    $('share-heading').textContent = saved ? 'Saved. Ready to share.' : 'Pass it on.';
+    $('share-heading').textContent = saved ? 'Saved. Ready to share.' : 'Share your handpan.';
     $('share-saved').hidden = !saved;
     $('share-saved').textContent = `“${layout.title}” is in your collection. This link recreates that saved version.`;
     $('share-local').hidden = !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && url.protocol !== 'file:';
@@ -558,6 +722,15 @@ class Elaia {
   }
 
   bind() {
+    if (window.visualViewport) {
+      const fitDialogs = () => {
+        document.documentElement.style.setProperty('--visual-height', `${visualViewport.height}px`);
+        document.documentElement.style.setProperty('--visual-top', `${visualViewport.offsetTop}px`);
+      };
+      visualViewport.addEventListener('resize', fitDialogs);
+      visualViewport.addEventListener('scroll', fitDialogs);
+      fitDialogs();
+    }
     document.querySelectorAll('.close-dialog').forEach(b => { b.onclick = () => b.closest('dialog').close(); });
     document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => {
       if (e.target !== d) return;
@@ -570,14 +743,40 @@ class Elaia {
       this.family = b.dataset.family; markActive('[data-family]', 'family', this.family); this.renderScales();
     }; });
     $('advanced-btn').onclick = () => this.setAdvanced(!this.advanced);
+    $('play-mode-btn').onclick = () => this.setAdvanced(false);
+    for (const [selector, choose] of [
+      ['[data-editor-tab]', button => this.setEditorTab(button.dataset.editorTab)],
+      ['[data-play-tab]', button => this.setPlayTab(button.dataset.playTab)],
+    ]) {
+      const tabs = [...document.querySelectorAll(selector)];
+      tabs.forEach((button, index) => {
+        button.onclick = () => choose(button);
+        button.onkeydown = event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+            : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          choose(tabs[next]); tabs[next].focus();
+        };
+      });
+    }
     $('customize-link').onclick = () => this.setAdvanced(true);
+    document.querySelectorAll('[data-demo]').forEach(button => { button.onclick = () => this.playDemo(button.dataset.demo); });
+    $('demo-stop').onclick = () => this.damp();
     $('add-bottom-link').onclick = () => { this.setAdvanced(true); this.setView('bottom'); this.setTool('add'); $('add-side').value = 'bottom'; };
     $('place-note-btn').onclick = () => this.addField();
+    $('cancel-add').onclick = () => this.setTool('select');
+    $('add-note').onchange = () => this.renderAdd();
+    $('add-side').onchange = () => { this.setView($('add-side').value); this.suggestAdd(); this.renderAdd(); };
+    $('follow-scale').onchange = () => { this.suggestAdd(); this.renderAdd(); };
     $('done-edit').onclick = () => this.setAdvanced(false);
     document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => this.setView(b.dataset.view); });
     $('bottom-view').onclick = () => this.setView('bottom');
-    $('reset-view').onclick = () => { this.renderer?.reset(); markActive('[data-view]', 'view', this.renderer?.view || 'top'); };
-    $('sound-btn').onclick = () => this.play(this.layout.fields[0].id);
+    $('reset-view').onclick = () => { this.renderer?.reset(); this.setView(this.renderer?.view || 'top'); };
+    $('sound-btn').onclick = () => {
+      const field = this.layout.fields.find(f => f.midi !== null);
+      if (field) this.play(field.id); else this.toast('Choose a pitch for a tone field in Customize.');
+    };
     $('volume').oninput = () => { this.audio.volume = +$('volume').value; this.audio.mix(); };
     $('damp-btn').onclick = () => this.damp();
     document.querySelectorAll('[data-space]').forEach(b => { b.onclick = () => {
@@ -601,15 +800,11 @@ class Elaia {
       catch (error) { this.toast(error.message); }
     };
     document.querySelectorAll('[data-tool]').forEach(b => { b.onclick = () => {
+      this.setEditorTab('layout');
       this.setTool(b.dataset.tool);
-      if (innerWidth <= 620) this.showMobileStage();
     }; });
-    $('field-note').onchange = () => { this.updateField({ midi: +$('field-note').value }); this.play(this.selected); };
+    $('field-note').onchange = () => { this.updateField({ midi: $('field-note').value === '' ? null : +$('field-note').value }); this.play(this.selected); };
     $('field-shape').onchange = () => this.updateField({ shape: $('field-shape').value }, { audio: false });
-    document.querySelectorAll('[data-sound]').forEach(button => { button.onclick = () => {
-      const next = clone(this.layout); next.sound = button.dataset.sound;
-      this.commit(next, { geometry: false, custom: this.layout.custom });
-    }; });
     $('field-down').onclick = () => { if (this.selectedField()) { this.updateField({ midi: this.selectedField().midi - 1 }); this.play(this.selected); } };
     $('field-up').onclick = () => { if (this.selectedField()) { this.updateField({ midi: this.selectedField().midi + 1 }); this.play(this.selected); } };
     $('audition-btn').onclick = () => this.play(this.selected);
@@ -618,6 +813,7 @@ class Elaia {
       if (!this.selectedField()) return;
       if (this.selectedField().side !== b.dataset.side) {
         const next = clone(this.layout), field = next.fields.find(f => f.id === this.selected);
+        next.manualPlacement = true;
         field.side = b.dataset.side;
         if (!fits(next, field)) {
           // Quickly find a free slot when the same location would hit the gu or another field.
@@ -643,6 +839,7 @@ class Elaia {
         if (!this.rangeBaseline) this.rangeBaseline = clone(this.layout);
         const value = convert(input.value), test = { ...field, [property]: value };
         if (!fits(this.layout, test)) { input.value = property === 'size' ? field.size : field.angle * 180 / Math.PI; return; }
+        if (field[property] !== value) this.layout.manualPlacement = true;
         field[property] = value; this.layout.custom = true;
         if (this.renderer) this.renderer.interactive = true;
         this.requestMesh();
@@ -657,15 +854,11 @@ class Elaia {
     }
     $('remove-field').onclick = () => {
       if (this.layout.fields.length <= 1) { this.toast('Keep at least one tone field on your instrument.'); return; }
-      const next = clone(this.layout); next.fields = next.fields.filter(f => f.id !== this.selected);
-      this.commit(next);
+      this.commit(removeToneField(this.layout, this.selected));
     };
     $('undo-btn').onclick = () => this.travel(true); $('redo-btn').onclick = () => this.travel(false);
-    $('reset-layout').onclick = () => {
-      const preset = PRESETS.find(p => p.id === this.layout.preset) || PRESETS[0];
-      const next = createLayout(preset); next.a4 = this.layout.a4; next.finish = this.layout.finish;
-      this.commit(next, { custom: false }); this.toast('Original layout restored. You can undo this.');
-    };
+    $('reset-layout').onclick = () => this.restoreOriginal();
+    $('restore-original').onclick = () => this.restoreOriginal();
     $('save-btn').onclick = () => this.openSave();
     $('library-btn').onclick = () => { this.renderLibrary(); $('library-dialog').showModal(); };
     $('new-save-btn').onclick = () => { $('library-dialog').close(); this.openSave(); };
@@ -712,9 +905,11 @@ class Elaia {
     };
     this.bindPointers();
     window.addEventListener('keydown', event => {
-      if (document.querySelector('dialog[open]') || event.target.closest('input,select,textarea,[contenteditable]')) return;
+      if (document.querySelector('dialog[open]')) return;
       const key = event.key.toLowerCase();
-      if ((event.ctrlKey || event.metaKey) && key === 'z') { event.preventDefault(); this.travel(!event.shiftKey); return; }
+      const textEntry = event.target.closest('textarea,[contenteditable],input:not([type=range])');
+      if ((event.ctrlKey || event.metaKey) && key === 'z' && !textEntry) { event.preventDefault(); this.travel(!event.shiftKey); return; }
+      if (event.target.closest('input,select,textarea,[contenteditable]')) return;
       if (event.ctrlKey || event.metaKey || event.repeat) return;
       if (key === 'escape') { this.setAdvanced(false); return; }
       if (key === 'm') { event.preventDefault(); this.damp(); return; }

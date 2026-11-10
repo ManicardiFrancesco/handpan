@@ -220,11 +220,17 @@ export class HandpanRenderer {
 
   vertexAt(x, z, side) { return [...this.surfaceModel.sample(x, z, side), x, z, side === 'bottom' ? -1 : 0]; }
 
-  bakeNormals(size) {
-    const bytes = new Uint8Array(size * size * 8);
-    for (let side = 0; side < 2; side++) for (let row = 0; row < size; row++) {
+  normalCacheKey(layout, size) {
+    return JSON.stringify([layout.arrangement, layout.fields.map(f =>
+      [f.id, f.side, f.x, f.z, f.size, f.angle, f.aspect, f.geometry, f.shape]), size]);
+  }
+
+  writeNormals({ side, left, top, right, bottom }, upload = false) {
+    const size = this.normalSize, bytes = this.normalPixels;
+    const patch = upload ? new Uint8Array((right - left) * (bottom - top) * 4) : null;
+    for (let row = top; row < bottom; row++) {
       const z = (row + 0.5) / size * 2 - 1;
-      for (let col = 0; col < size; col++) {
+      for (let col = left; col < right; col++) {
         const x = (col + 0.5) / size * 2 - 1;
         const p = this.surfaceModel.sample(x, z, side ? 'bottom' : 'top');
         const sum = Math.abs(p[3]) + Math.abs(p[4]) + Math.abs(p[5]);
@@ -240,15 +246,94 @@ export class HandpanRenderer {
         bytes[offset] = a >> 8; bytes[offset + 1] = b >> 8;
         bytes[offset + 2] = a & 255; bytes[offset + 3] = b & 255;
       }
+      if (patch) {
+        const start = ((side * size + row) * size + left) * 4;
+        patch.set(bytes.subarray(start, start + (right - left) * 4), (row - top) * (right - left) * 4);
+      }
     }
+    if (patch) {
+      this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, left, top + side * size,
+        right - left, bottom - top, this.gl.RGBA, this.gl.UNSIGNED_BYTE, patch);
+    }
+  }
+
+  bakeNormals(size) {
+    this.normalSize = size;
+    this.normalPixels = new Uint8Array(size * size * 8);
+    for (let side = 0; side < 2; side++) this.writeNormals({ side, left: 0, top: 0, right: size, bottom: size });
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.normalTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size * 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size * 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.normalPixels);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.normalSize = size;
+  }
+
+  indexVertices() {
+    this.vertexBins = Array.from({ length: 2 }, () => Array.from({ length: 32 * 32 }, () => []));
+    for (let id = 0; id < this.vertexCount; id++) {
+      const at = id * 9, detail = this.meshVertices[at + 8];
+      if (detail > 0.5) continue; // The rim and gu wall do not move with fields.
+      const x = Math.max(0, Math.min(31, Math.floor((this.meshVertices[at + 6] + 1) * 16)));
+      const z = Math.max(0, Math.min(31, Math.floor((this.meshVertices[at + 7] + 1) * 16)));
+      this.vertexBins[detail < -0.5 ? 1 : 0][z * 32 + x].push(id);
+    }
+  }
+
+  updateInteractive(layout, size) {
+    if (!this.meshVertices || !this.normalPixels || size !== this.normalSize
+        || layout.arrangement !== this.surfaceArrangement
+        || layout.fields.length !== this.geometryFields.length
+        || layout.fields.some((f, i) => f.id !== this.geometryFields[i].id || f.side !== this.geometryFields[i].side)) return false;
+    const started = performance.now(), changes = this.surfaceModel.updateFields(layout);
+    if (!changes.length) { this.dirty = true; return true; }
+    const rectangles = [], ids = new Set();
+    for (const { before, after } of changes) {
+      const regions = [before, after].map(f => {
+        const reach = f.size * 1.3 + 2 / size;
+        return { side: f.side === 'bottom' ? 1 : 0,
+          left: Math.max(0, Math.floor((f.x - reach + 1) * size / 2)),
+          right: Math.min(size, Math.ceil((f.x + reach + 1) * size / 2)),
+          top: Math.max(0, Math.floor((f.z - reach + 1) * size / 2)),
+          bottom: Math.min(size, Math.ceil((f.z + reach + 1) * size / 2)) };
+      });
+      const [a, b] = regions;
+      if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
+        rectangles.push({ side: a.side, left: Math.min(a.left, b.left), right: Math.max(a.right, b.right),
+          top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom) });
+      } else rectangles.push(...regions);
+    }
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.normalTexture);
+    let texels = 0;
+    for (const rect of rectangles) {
+      this.writeNormals(rect, true); texels += (rect.right - rect.left) * (rect.bottom - rect.top);
+      const left = Math.max(0, Math.floor(rect.left / size * 32));
+      const right = Math.min(31, Math.floor(rect.right / size * 32));
+      const top = Math.max(0, Math.floor(rect.top / size * 32));
+      const bottom = Math.min(31, Math.floor(rect.bottom / size * 32));
+      for (let z = top; z <= bottom; z++) for (let x = left; x <= right; x++)
+        this.vertexBins[rect.side][z * 32 + x].forEach(id => ids.add(id));
+    }
+    const ordered = [...ids].sort((a, b) => a - b), data = this.meshVertices;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    let start, end;
+    const upload = () => {
+      if (start !== undefined) gl.bufferSubData(gl.ARRAY_BUFFER, start * 36, data.subarray(start * 9, (end + 1) * 9));
+    };
+    for (const id of ordered) {
+      const at = id * 9;
+      data.set(this.vertexAt(data[at + 6], data[at + 7], data[at + 8] < -0.5 ? 'bottom' : 'top'), at);
+      if (start === undefined) start = id;
+      else if (id > end + 24) { upload(); start = id; }
+      end = id;
+    }
+    upload();
+    this.normalKey = this.normalCacheKey(layout, size);
+    this.lastUpdate = { texels, vertices: ids.size, milliseconds: performance.now() - started, rectangles };
+    this.dirty = true;
+    return true;
   }
 
   refineCaps(vertices, indices, passes, mobile) {
@@ -300,14 +385,14 @@ export class HandpanRenderer {
 
   build(layout) {
     this.layout = layout;
+    const size = Math.min(this.width < 650 ? 768 : 1024, this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) / 2);
+    if (this.interactive && this.updateInteractive(layout, size)) return;
     this.surfaceModel = new HandpanSurface(layout);
     this.geometryFields = this.surfaceModel.fields;
-    this.mappedNormals = !this.interactive;
-    if (this.mappedNormals) {
-      const size = Math.min(this.width < 650 ? 768 : 1024, this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) / 2);
-      const key = JSON.stringify([layout.arrangement, layout.fields, size]);
-      if (key !== this.normalKey) { this.bakeNormals(size); this.normalKey = key; }
-    }
+    this.surfaceArrangement = layout.arrangement;
+    this.mappedNormals = true;
+    const key = this.normalCacheKey(layout, size);
+    if (key !== this.normalKey) { this.bakeNormals(size); this.normalKey = key; }
     const vertices = [];
     let indices = [];
     const push = (a, b, c) => {
@@ -317,8 +402,8 @@ export class HandpanRenderer {
     // Indexed geometry shares vertices, providing finer silhouettes and normals
     // while using less memory than the previous unindexed mesh.
     const mobile = this.width < 650;
-    const segments = this.interactive ? 160 : this.largeIndices ? (mobile ? 192 : 256) : 144;
-    const rings = this.interactive ? 96 : this.largeIndices ? (mobile ? 112 : 144) : 80;
+    const segments = this.largeIndices ? (mobile ? 192 : 256) : 144;
+    const rings = this.largeIndices ? (mobile ? 112 : 144) : 80;
     for (const side of ['top', 'bottom']) {
       const start = side === 'bottom' ? this.surfaceModel.port : 0;
       const offset = vertices.length / 9;
@@ -340,7 +425,7 @@ export class HandpanRenderer {
         }
       }
     }
-    if (!this.interactive) indices = this.refineCaps(vertices, indices, 1, mobile);
+    indices = this.refineCaps(vertices, indices, 1, mobile);
     // Rolled outer edge connects the shells; a dark equatorial seam adds depth.
     const rimVertex = (a, b) => {
       const rad = 1.002 + Math.cos(b) * 0.012;
@@ -364,9 +449,11 @@ export class HandpanRenderer {
       push(point(a, port, y), point(b, port - 0.015, y + 0.11), point(a, port - 0.015, y + 0.11));
     }
     this.vertexCount = vertices.length / 9;
+    this.meshVertices = new Float32Array(vertices);
+    this.indexVertices();
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, this.meshVertices, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.largeIndices ? new Uint32Array(indices) : new Uint16Array(indices), gl.STATIC_DRAW);
     this.indexCount = indices.length;
@@ -375,7 +462,7 @@ export class HandpanRenderer {
 
   camera() {
     const mobile = this.width < 620;
-    const available = Math.min(this.width * (mobile ? 0.84 : 0.81), (this.height - 165) * 1.02);
+    const available = Math.min(this.width * (mobile ? 0.84 : 0.81), (this.height - (this.height < 400 ? 110 : 165)) * 1.02);
     const distance = this.height / Math.max(available, 100) / Math.tan(19 * Math.PI / 180) / this.zoom;
     this.eye = [Math.sin(this.yaw) * Math.cos(this.pitch) * distance,
       Math.sin(this.pitch) * distance, Math.cos(this.yaw) * Math.cos(this.pitch) * distance];

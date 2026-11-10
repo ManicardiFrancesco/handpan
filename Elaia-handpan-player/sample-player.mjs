@@ -9,6 +9,7 @@ const midiOf = note => {
 const catalogs = new Map();
 
 export function sampleFor(layout, field) {
+  if (field.midi === null) return null;
   const key = Object.hasOwn(SAMPLE_BANKS, layout.arrangement) ? layout.arrangement : 'd-aegean-18';
   if (!catalogs.has(key)) catalogs.set(key, Object.entries(SAMPLE_BANKS[key])
     .map(([note, entry]) => ({ ...entry, note, midi: midiOf(note) })));
@@ -25,7 +26,7 @@ export class SamplePlayer {
     this.cache = new Map(); this.pending = new Map(); this.failed = new Set();
     this.voices = new Set(); this.queue = []; this.loading = 0;
     this.bytes = 0; this.budget = 32 * 1024 * 1024;
-    this.entries = [];
+    this.entries = []; this.wanted = new Set();
   }
 
   connect() {
@@ -42,10 +43,25 @@ export class SamplePlayer {
 
   configure(layout) {
     this.layout = layout; this.damp();
-    this.entries = layout.sound === 'ayasa' ? layout.fields.map(f => sampleFor(layout, f)) : [];
+    this.entries = layout.fields.filter(f => f.midi !== null).map(f => sampleFor(layout, f));
     const wanted = new Map(this.entries.map(e => [e.url, e]));
-    this.queue = [...wanted.values()].filter(e => !this.cache.has(e.url) && !this.pending.has(e.url) && !this.failed.has(e.url));
-    this.pump(); this.status();
+    this.wanted = new Set(wanted.keys());
+    this.queue = this.queue.filter(job => {
+      if (wanted.has(job.entry.url)) return true;
+      this.pending.delete(job.entry.url); job.resolve(false); return false;
+    });
+    this.trimCache();
+    wanted.forEach(entry => this.load(entry));
+    this.status();
+  }
+
+  trimCache() {
+    // The current bank stays resident, even if it exceeds the recent-bank budget.
+    for (const [url, cached] of this.cache) {
+      if (this.bytes <= this.budget) break;
+      if (this.wanted.has(url)) continue;
+      this.cache.delete(url); this.bytes -= cached.bytes;
+    }
   }
 
   status() {
@@ -56,48 +72,63 @@ export class SamplePlayer {
 
   pump() {
     while (this.loading < 3 && this.queue.length) {
-      const entry = this.queue.shift();
-      if (!this.cache.has(entry.url) && !this.pending.has(entry.url)) this.load(entry);
+      const job = this.queue.shift();
+      this.loading++;
+      this.decode(job);
     }
   }
 
-  load(entry) {
-    if (this.pending.has(entry.url)) return this.pending.get(entry.url);
-    this.loading++;
-    const task = (async () => {
-      try {
-        const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 12000);
-        let data;
-        try {
-          const response = await fetch(entry.url, { credentials: 'omit', signal: controller.signal });
-          if (!response.ok) throw new Error('Preview unavailable');
-          data = await response.arrayBuffer();
-        } finally { clearTimeout(timer); }
-        const buffer = await this.engine.ctx.decodeAudioData(data);
-        const bytes = buffer.length * buffer.numberOfChannels * 4;
-        if (bytes <= this.budget) {
-          while (this.bytes + bytes > this.budget && this.cache.size) {
-            const [key, old] = this.cache.entries().next().value;
-            this.cache.delete(key); this.bytes -= old.bytes;
-          }
-          this.cache.set(entry.url, { buffer, bytes }); this.bytes += bytes;
-        }
-      } catch { this.failed.add(entry.url); }
-      finally {
-        this.pending.delete(entry.url); this.loading--; this.pump(); this.status();
-      }
-    })();
+  load(entry, priority = false) {
+    if (this.cache.has(entry.url)) return Promise.resolve(true);
+    if (this.failed.has(entry.url)) return Promise.resolve(false);
+    if (this.pending.has(entry.url)) {
+      const index = this.queue.findIndex(job => job.entry.url === entry.url);
+      if (priority && index > 0) this.queue.unshift(...this.queue.splice(index, 1));
+      return this.pending.get(entry.url);
+    }
+    let resolve;
+    const task = new Promise(done => { resolve = done; });
     this.pending.set(entry.url, task);
+    const job = { entry, resolve };
+    if (priority) this.queue.unshift(job); else this.queue.push(job);
+    this.pump();
     return task;
   }
 
+  async decode({ entry, resolve }) {
+    try {
+      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 12000);
+      let data;
+      try {
+        const response = await fetch(entry.url, { credentials: 'omit', signal: controller.signal });
+        if (!response.ok) throw new Error('Preview unavailable');
+        data = await response.arrayBuffer();
+      } finally { clearTimeout(timer); }
+      // Offline decoding can run before a gesture; playback still starts in
+      // the engine's AudioContext only after the user touches the instrument.
+      const Decoder = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+      const decoder = this.engine.ctx || (this.decoder ||= new Decoder(2, 1, 44100));
+      const buffer = await decoder.decodeAudioData(data);
+      const bytes = buffer.length * buffer.numberOfChannels * 4;
+      this.cache.set(entry.url, { buffer, bytes }); this.bytes += bytes;
+      this.trimCache();
+    } catch { this.failed.add(entry.url); }
+    finally {
+      this.pending.delete(entry.url); this.loading--; this.pump(); this.status();
+      resolve(this.cache.has(entry.url));
+    }
+  }
+
+  ready(field) {
+    if (field.midi === null) return Promise.resolve(false);
+    return this.load(sampleFor(this.layout, field), true);
+  }
+
   strike(field, velocity) {
-    if (this.layout.sound !== 'ayasa') return false;
+    if (field.midi === null) return false;
     const entry = sampleFor(this.layout, field), cached = this.cache.get(entry.url);
     if (!cached) {
-      if (!this.failed.has(entry.url) && !this.pending.has(entry.url)) {
-        this.queue = [entry, ...this.queue.filter(e => e.url !== entry.url)]; this.pump();
-      }
+      this.load(entry, true);
       return false;
     }
     // Refresh LRU order without retaining a second decoded copy.

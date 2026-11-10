@@ -29,46 +29,84 @@ the `/handpan/` project prefix. Share links retain the current URL and encode
 the layout in its fragment; no server routing is needed. Temporary Ayasa audio
 previews remain external, with local synthesis as fallback.
 
-The initial publication uses the committed shared audio/model modules.
-The separate tuning-studio changes in those modules are not bundled into
-this deployment commit. Until the `idealPartials` model change is committed,
-the fallback synth retains its existing slight octave/twelfth detuning, and
-the exact-partial assertions in `tests/elaia.test.mjs` require that local change.
+The fallback synth uses exact fundamental, octave, and twelfth frequencies,
+including at 432 Hz. The shared model's optional `idealPartials` setting is
+included in the published site; other instruments retain their existing tuning.
 
 ## Playing
 
 - Tap a 3D tone field or note button; multiple fingers can play together.
-- Tap bare steel for a percussive shell strike.
-- Drag to orbit, scroll or pinch to zoom; choose Top side or Bottom side to
+- Tap bare steel for a finger slap. Force, position, and shell affect its sound.
+- Drag to orbit, scroll or pinch to zoom; choose Top or Bottom to
   flip the instrument. Exposed fields from either shell remain playable
   in angled views; the nearest visible surface determines the hit.
 - Choose one of 15 Ayasa instruments with measured field positions,
   varied sizes, convex/concave caps, and 13–22 notes across both shells.
   D Aegean 18 is the default. The earlier generated presets are removed.
-- Play the available chords; adjust volume and room ambience or damp all notes.
+- Each chord offers its available root octaves. For example, D Aegean 18
+  offers B minor at B2, B3, and B4. Actual notes appear after playing;
+  a high root with lower accompaniment is labeled with its inversion.
+- Listen → Top notes, Bottom notes, or All notes plays every chosen field
+  from lowest to highest, one note every 600 ms. Stop, tapping the active
+  demo again, manual playing, or entering Customize ends the sequence.
+  Switching demos starts the new sequence from its lowest note.
+  Required recordings finish loading before the sequence begins.
+- Adjust volume and room ambience or damp all notes.
 - Switch among ember bronze, brushed steel, and rose copper finishes.
 - Keyboard: Space, A–;, Q–P, then Z–N and punctuation. Shift softens strikes,
   Alt increases force, and M damps. The keyboard button shows assignments.
 
 ## Editing
 
-Advanced mode exposes concert pitch (440 or 432 Hz), whole-instrument semitone
-transposition, and direct field manipulation.
+Customize is the advanced mode. Layout contains direct field editing;
+Sound & tuning contains 440/432 Hz, whole-instrument semitone transposition,
+volume, ambience, and finish. The instrument remains
+playable in Sound & tuning so changes can be auditioned immediately.
 
-Select a field on the model or note list to set its pitch, audition it, move it
-to the other shell, change its convex/concave shape, resize it, rotate it,
-or remove it. On phones the inspector
-opens as a bottom sheet, and editing tools stay in a floating toolbar. Drag any
-field directly in advanced mode; no tool change is needed. Right or middle
-mouse dragging always orbits the camera. Add note takes a pitch and target
-shell, then places the field automatically in an open spot. Drag it afterward
-to adjust. Placement
+Select a field on the model or note list to set its pitch, step by a semitone,
+audition it, move it to the other shell, or remove it. Field geometry discloses
+convex/concave shape, size, and rotation. The desktop inspector scrolls
+independently; on phones a single editor sheet sits below the instrument.
+The header's + button opens Add notes; undo, redo, and Save remain in that header.
+In Play, the phone note palette follows the viewed shell; Chords has its own tab.
+Drag any field directly in Layout; no tool change is needed. Right or middle
+mouse dragging always orbits the camera. Add notes stays open after every
+addition. Follow scale suggests missing published notes first, then continues
+upward through the selected scale. Tap Add repeatedly without reopening the
+panel or choosing each pitch; Done opens the last field's editor. Turn off
+Follow scale to repeat a chosen pitch. Unassigned places silent fields whose
+pitches can be chosen later; it is also the default when a custom document
+has no identifiable scale.
+
+Vacant published top positions are filled with their original geometry.
+Once those positions are occupied, the inner mutant cluster grows from one
+centred field to a symmetric pair, then three-, four-, and five-field wedges.
+The cluster rearranges when fields are added or removed; outer fields retain
+their measured positions. Inner sizes retain their proportions and reduce
+only as needed to fit. A manual drag, resize, rotation, or shell change
+takes over the layout: subsequent additions use free space and leave existing
+fields untouched. Undo restores automatic placement. Placement mode and
+automatic slot metadata survive saving, sharing, and reloading.
+
+Drag a newly added field to adjust it. Placement
 reserves room around other fields, the rolled rim, and the bottom sound port.
-Layouts can contain 1–48 fields, in the F♯0–C7 range.
+The added field stays selected. Layouts can contain 1–48 fields; assigned
+pitches use the F♯0–C7 range. Unassigned fields are excluded from recorded
+audio, chords, and demos.
+
+Original appears beside the instrument heading after customization or
+transposition. It restores the selected factory instrument's notes, positions,
+sizes, and shapes, retaining reference tuning and finish. The reset is one
+undoable action. Reset layout in the editor has the same behavior.
 
 Edits, tuning, removal, preset changes, and dragging support 50 levels of
 undo/redo; one slider or drag gesture creates one history entry. Ctrl/Cmd+Z
 undoes, Ctrl/Cmd+Shift+Z redoes, and Escape leaves editing.
+
+Dragging and size/rotation changes retain the full mesh and normal-map
+resolution. Only the old/new field regions are resampled and uploaded.
+Stationary regions keep their baked detail, and the updated normal map is
+reused on release. Local cap tessellation is refreshed when the gesture ends.
 
 ## Saving and sharing
 
@@ -79,7 +117,7 @@ Share button. Export/import uses validated JSON.
 
 Share links encode the entire layout in the URL fragment: pitches, shell
 membership, XY positions, size, aspect ratio, rotation, cap shape, source
-geometry references, sound choice, concert pitch, and finish. They need
+geometry references, concert pitch, and finish. They need
 no server storage or account. Link length depends on field count; JSON export
 is available for messaging services that limit URL length. Opening a link
 loads its instrument; editing it replaces the fragment and saves the current
@@ -136,12 +174,17 @@ These remote MP3s are temporary preview sound. No audio files are bundled.
 Replace the manifest URLs and note mappings with your own recordings when
 ready. Public availability is not a grant of a redistribution license.
 
-Only the selected instrument loads, after the first audio gesture, with three
-concurrent requests and a 32 MB decoded-buffer cache. Loaded previews play
+Only the selected instrument preloads, with three concurrent requests.
+Offline decoding prepares recordings before the first gesture; playback still
+requires a gesture. The current bank stays resident. Older banks are evicted
+to keep decoded memory within 32 MB where the current bank permits.
+Loaded previews play
 polyphonically, follow 432/440 Hz and transposition, pan with their fields, and
-respond to damping. While a preview loads, or if it is unavailable, the
-physical model plays immediately. Advanced → Sound also selects modeled
-sound explicitly. Remote previews require an internet connection; geometry
+respond to damping. A strike during loading waits for its recording rather
+than changing timbre; damping or changing the layout cancels waiting strikes.
+Recordings are used automatically; if one fails, the physical model fills that
+gap. Older layouts with a saved sound preference also follow this default.
+Remote previews require an internet connection; geometry
 and the physical model are self-contained.
 
 ## Implementation
@@ -155,14 +198,21 @@ and the physical model are self-contained.
 - `renderer.js`: native WebGL, both shells, rolled rim, sound port,
   original studio reflections, picking, orbit and strike lighting.
   Fine normals are baked locally into a 16-bit normal atlas, independently
-  of mesh density. Cap regions receive local mesh refinement; dragging uses
-  a lighter mesh and restores detail on release. Mobile uses a 768-pixel
+  of mesh density. Cap regions receive local mesh refinement; dragging keeps
+  full detail and updates only the affected surface regions. Mobile uses a 768-pixel
   normal map per shell, desktop 1024. Pixel density is capped at 2, hidden
   faces are culled, and GPU drawing stops when idle.
 - `audio.js`, `sample-player.mjs`, `samples.mjs`: recorded preview playback
   with bounded caching and a physical-model fallback. The repository's
   AudioWorklet supplies tuned modal synthesis, shell/cavity percussion,
   sympathetic resonance, stereo placement and convolution reverb.
+- `playback.mjs`: physical chord voicings in each root register and ordered
+  shell demo sequences.
+- `arrangement.mjs`: scale-following additions, default slots, symmetric
+  inner clusters, manual-placement recognition, and factory restoration.
+- `shell-tap.mjs`: original finger-slap synthesis with filtered contact noise,
+  a low pitched body, and a short fingertip transient. One small noise buffer
+  is reused; voices are bounded and disconnect after playback.
 - `app.js`: performance controls, editor, accessible dialogs, local collection,
   importing/exporting, sharing, keyboard, and multi-touch input.
 - `fonts/`: self-hosted DM Sans, with its SIL Open Font License.
@@ -179,13 +229,15 @@ target devices before production release.
 node tests/elaia.test.mjs
 node tests/elaia-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-samples-browser.test.cjs http://127.0.0.1:8080
+node tests/elaia-arrangement-browser.test.cjs http://127.0.0.1:8080
 ```
 
 The browser test requires Playwright. Set `PW` to an installed Playwright
 package path if it is not available through Node's module resolution.
 `SHOTS` selects a screenshot output directory.
 
-The model test checks every preset, both shells, tuned partials, custom
+The model test checks every preset, both shells, chord octaves, demo ordering,
+tuned partials, automatic clusters, silent fields, manual-placement persistence, custom
 ordering, placement restrictions, Unicode serialization, and malformed input.
 The browser test uses real Chromium WebGL and AudioWorklet output, measures a
 432 Hz note, and exercises editing, storage, links, importing/exporting,

@@ -3,11 +3,14 @@ import { buildInstrument } from '../src/model/instrument.js';
 import {
   PRESETS, MAX_FIELDS, MIDI_MIN, MIDI_MAX, createLayout, validateLayout,
   transposeLayout, fits, audioLayout, encodeLayout, decodeLayout, clone,
-  automaticField, arrangementInfo, restoreCurrent,
+  automaticField, arrangementInfo, restoreCurrent, titleFor,
 } from '../Elaia-handpan-player/model.mjs';
 import { fieldGeometry, shellGeometry } from '../Elaia-handpan-player/geometry.mjs';
 import { HandpanSurface } from '../Elaia-handpan-player/surface.mjs';
 import { sampleFor } from '../Elaia-handpan-player/sample-player.mjs';
+import { findChords } from '../src/theory/chords.js';
+import { chordVoicings, demoFields } from '../Elaia-handpan-player/playback.mjs';
+import { addToneField, removeToneField, nextNote, scalePitches, canAutoArrange, placementStatus, originalLayout } from '../Elaia-handpan-player/arrangement.mjs';
 
 let assertions = 0;
 const check = (condition, message) => { assert.ok(condition, message); assertions++; };
@@ -34,8 +37,115 @@ for (const preset of PRESETS) {
     check(Math.abs(note.f0 - 432 * 2 ** ((note.midi - 69) / 12)) < 1e-8, '432 Hz concert pitch reaches every field');
     check(note.modes[2].f === note.f0 * 2 && note.modes[4].f === note.f0 * 3, 'Physical octave and twelfth stay tuned');
   });
+  for (const chord of findChords(layout.fields, { minNotes: 3, maxResults: 9 })) {
+    const voicings = chordVoicings(chord, layout.fields);
+    const roots = [...new Set(layout.fields.filter(f => f.midi % 12 === chord.root).map(f => f.midi))].sort((a, b) => a - b);
+    assert.deepEqual(voicings.map(v => v.rootMidi), roots); assertions++;
+    check(new Set(voicings.map(v => v.notes.map(f => f.midi).join(','))).size === voicings.length, 'Equal-pitch fields do not duplicate a chord octave');
+    for (const voicing of voicings) {
+      check(voicing.notes.every(f => layout.fields.includes(f)), 'Chord voicings only play physical fields on the instrument');
+      assert.deepEqual(voicing.notes.map(f => f.midi % 12).sort((a, b) => a - b), [...chord.pcs].sort((a, b) => a - b)); assertions++;
+      check(voicing.notes.some(f => f.midi === voicing.rootMidi) && voicing.octave === Math.floor(voicing.rootMidi / 12) - 1, 'Every octave choice plays its stated root');
+      check(voicing.notes.every((f, i, fields) => !i || f.midi >= fields[i - 1].midi), 'Each chord strums upward through its actual pitches');
+    }
+  }
+  for (const side of ['top', 'bottom', 'all']) {
+    const sequence = demoFields(layout, side);
+    check(sequence.length === layout.fields.filter(f => side === 'all' || f.side === side).length, 'Demos include every field on the chosen shell');
+    check(sequence.every((f, i) => layout.fields.includes(f) && (!i || f.midi >= sequence[i - 1].midi)), 'Demo sequences use real fields from low to high');
+  }
 }
 const original = createLayout();
+for (const preset of PRESETS) {
+  const stock = createLayout(preset), inner = stock.fields.filter(f => f.side === 'top' && f.id !== 'n0' && Math.hypot(f.x, f.z) < 0.6);
+  const outer = stock.fields.filter(f => f.side === 'top' && !inner.includes(f));
+  let expanded = clone(stock), additions = 0;
+  while (!placementStatus(expanded, 'top').full) {
+    const midi = nextNote(expanded, 'top');
+    check(midi !== null && scalePitches(stock).includes(midi % 12), 'Rapid additions follow the selected instrument scale');
+    const next = addToneField(expanded, { id: `series-${additions++}`, midi, side: 'top' });
+    check(!!next && next.fields.length === expanded.fields.length + 1, 'Each automatic addition adds exactly one field');
+    expanded = validateLayout(next);
+    check(expanded.fields.every(f => fits(expanded, f)) && canAutoArrange(expanded), 'Every automatic cluster fits and stays automatic');
+    for (const field of outer) {
+      assert.deepEqual(expanded.fields.find(f => f.id === field.id), field); assertions++;
+    }
+    const cluster = expanded.fields.filter(f => f.autoSlot === 'mutant');
+    const centres = cluster.map(f => f.x).sort((a, b) => a - b);
+    check(centres.every((x, i) => Math.abs(x + centres[centres.length - i - 1]) < 1e-8), 'Automatic inner clusters have symmetric centres');
+  }
+  check(additions === 5 - inner.length && addToneField(expanded, { id: 'sixth', midi: 90, side: 'top' }) === null, 'Automatic top layouts stop at five inner slots');
+  assert.deepEqual(originalLayout(expanded), stock); assertions++;
+  assert.deepEqual(decodeLayout(encodeLayout(expanded)), expanded); assertions++;
+  if (additions) {
+    const reduced = removeToneField(expanded, `series-${additions - 1}`);
+    check(reduced.fields.length === expanded.fields.length - 1 && reduced.fields.every(f => fits(reduced, f)), 'Removing a cluster note rearranges the remaining fields without overlap');
+    const frozen = { ...expanded, manualPlacement: true };
+    const manuallyAdded = addToneField(frozen, { id: 'manual-extra', midi: 88, side: 'top' });
+    if (manuallyAdded) {
+      for (const field of frozen.fields) {
+        assert.deepEqual(manuallyAdded.fields.find(f => f.id === field.id), field); assertions++;
+      }
+      check(!canAutoArrange(manuallyAdded), 'Manual placement remains manual after adding and sharing');
+      assert.deepEqual(decodeLayout(encodeLayout(manuallyAdded)), manuallyAdded); assertions++;
+    }
+  }
+  const missingRing = clone(stock), slot = outer[1];
+  missingRing.fields = missingRing.fields.filter(f => f.id !== slot.id);
+  check(nextNote(missingRing, 'top') === slot.midi, 'A removed published outer note is suggested before higher extensions');
+  const filled = addToneField(missingRing, { id: 'restored-slot', midi: slot.midi, side: 'top' });
+  const restored = filled.fields.find(f => f.id === 'restored-slot');
+  check(['x', 'z', 'size', 'angle', 'aspect', 'geometry', 'shape'].every(key => restored[key] === slot[key]), 'A vacant default slot retains the exact published field position and geometry');
+}
+const blank = addToneField(original, { id: 'blank', midi: null, side: 'top' });
+check(blank.fields.at(-1).midi === null && sampleFor(blank, blank.fields.at(-1)) === null, 'Unassigned fields have no placeholder note or recording');
+check(audioLayout(blank).fields.length === original.fields.length && demoFields(blank, 'all').length === original.fields.length, 'Unassigned fields are excluded from audio and demo sequences');
+assert.deepEqual(decodeLayout(encodeLayout(blank)), blank); assertions++;
+check(transposeLayout(blank, 1).fields.at(-1).midi === null, 'Transposition leaves unassigned fields unassigned');
+const allBlank = { ...clone(original), preset: '', arrangement: '', custom: true };
+allBlank.fields.forEach(f => { f.midi = null; });
+check(nextNote(allBlank, 'top') === null && !scalePitches(allBlank).length && audioLayout(allBlank).fields.length === 0, 'A layout without a known scale offers empty fields rather than inventing pitches');
+const shiftedDefaults = transposeLayout(original, 2);
+check(nextNote(shiftedDefaults, 'top') === nextNote(original, 'top') + 2, 'Scale-following additions transpose with the instrument');
+const inferredManual = clone(original); inferredManual.fields[1].angle += 0.01;
+check(!canAutoArrange(inferredManual), 'Older custom files with moved or rotated fields are recognized without requiring new metadata');
+const manualFactory = { ...clone(original), manualPlacement: true };
+assert.deepEqual(restoreCurrent(manualFactory), manualFactory); assertions++;
+const minor = findChords(original.fields).find(c => c.plainSymbol === 'Bm');
+assert.deepEqual(chordVoicings(minor, original.fields).map(v => v.notes.map(f => f.midi)), [
+  [47, 50, 54], [59, 62, 66], [71, 74, 78],
+]); assertions++;
+const major = findChords(original.fields).find(c => c.plainSymbol === 'D');
+const highD = chordVoicings(major, original.fields).find(v => v.rootMidi === 74);
+check(highD.inverted && highD.symbol === 'D/A' && highD.bass.midi === 69, 'A high root with lower accompaniment reports the real inversion');
+const repeatedPitch = { fields: [
+  { id: 'high', midi: 74, side: 'top' }, { id: 'low', midi: 47, side: 'bottom' },
+  { id: 'top-d', midi: 62, side: 'top' }, { id: 'bottom-d', midi: 62, side: 'bottom' },
+] };
+const repeatedBefore = clone(repeatedPitch);
+assert.deepEqual(demoFields(repeatedPitch, 'all').map(f => f.id), ['low', 'top-d', 'bottom-d', 'high']); assertions++;
+assert.deepEqual(repeatedPitch, repeatedBefore); assertions++;
+check(demoFields({ fields: repeatedPitch.fields.filter(f => f.side === 'top') }, 'bottom').length === 0, 'An empty shell has no demo notes');
+assert.throws(() => demoFields(original, 'both')); assertions++;
+const retuned = transposeLayout({ ...original, a4: 432 }, -2);
+const frequencies = demoFields(retuned, 'all').map(f => retuned.a4 * 2 ** ((f.midi - 69) / 12));
+check(frequencies.every((f, i) => !i || f >= frequencies[i - 1]), 'Demo ordering remains ascending after transposition and concert-pitch changes');
+for (const [profile, delta, expected] of [
+  ['elements-d-kurd-13', -4, 'Elements A♯ Kurd 13'],
+  ['elements-d-kurd-15', -4, 'Elements A♯ Kurd 15'],
+  ['elements-e-amara-15', -6, 'Elements A♯ Amara 15'],
+  ['d-aegean-18', -1, 'C♯ Aegean 18'],
+  ['fis-kurd-22', 1, 'G Kurd 22'],
+  ['b2-aavartan-17', 1, 'C3 Aavartan 17'],
+  ['b3-pygmy-20', -12, 'B2 Pygmy 20'],
+  ['fis2-nordlys-16', -1, 'F2 Nordlys 16'],
+]) {
+  const source = createLayout(PRESETS.find(p => p.profile === profile));
+  check(titleFor(transposeLayout(source, delta)) === expected, 'Transpose changes only the complete root-note token, preserving prefixes, octaves, model names, and counts');
+  check(titleFor(transposeLayout(transposeLayout(source, delta), -delta)) === source.title, 'Transposing back restores the original title');
+}
+const named = transposeLayout({ ...original, title: 'Elements of my evening' }, 1);
+check(titleFor(named) === named.title, 'Transpose preserves a renamed instrument title');
 const aegean = createLayout(PRESETS.find(p => p.id === 'ayasa-d-aegean-18'));
 check(aegean.fields.filter(f => f.side === 'top').length === 11 && aegean.fields.filter(f => f.side === 'bottom').length === 7, 'Published D Aegean 18 has eleven top and seven bottom fields');
 const lowestRing = aegean.fields.find(f => f.midi === 54 && f.side === 'top');

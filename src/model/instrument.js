@@ -37,7 +37,7 @@ const T60_REF_HZ = 146.83;
 
 /**
  * @param {Object} scale     entry from the scale library
- * @param {Object} opts      {a4, rootMidi, helmF, seed, maxT60}
+ * @param {Object} opts      {a4, rootMidi, helmF, seed, maxT60, idealPartials}
  * @returns {Object}         instrument description
  */
 export function buildInstrument (scale, opts = {}) {
@@ -57,7 +57,9 @@ export function buildInstrument (scale, opts = {}) {
       // exact 1:2:3. Mode 1 is NOT jittered - it carries the perceived pitch
       // and must land on the tempered fundamental. Modes 2-3 drift slightly
       // (the tuner's compromise); the high cluster is strongly inharmonic.
-      const jit = mi === 0 ? 1
+      // Calibration references pin only the three principal modes to 1:2:3.
+      // Their split partners retain beating and independent decays.
+      const jit = mi === 0 || (opts.idealPartials && PRINCIPAL.includes(mi)) ? 1
                 : mi < 7  ? 1 + (R() - 0.5) * 0.004
                           : 1 + (R() - 0.5) * 0.09;
       const beat = m.beat === 0 ? 0 : m.beat * (0.6 + R() * 0.9);

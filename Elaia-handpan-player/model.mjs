@@ -28,8 +28,18 @@ function midiOf(note) {
 }
 
 export const clone = value => JSON.parse(JSON.stringify(value));
-export const nameOf = midi => noteName(midi, false).replace('#', '♯');
+export const nameOf = midi => midi === null ? 'Unassigned' : noteName(midi, false).replace('#', '♯');
 export const frequencyOf = (midi, a4) => midiToFreq(midi, a4);
+
+export function titleFor(layout) {
+  const preset = PRESETS.find(p => p.id === layout.preset);
+  if (!layout.transpose || !preset || layout.title !== preset.title) return layout.title;
+  const root = nameOf(preset.root).replace(/-?\d+$/, '');
+  const rootToken = new RegExp(`(^|\\s)${root}(-?\\d+)?(?=\\s|$)`);
+  const transposed = nameOf(preset.root + layout.transpose);
+  return layout.title.replace(rootToken, (_, prefix, octave) =>
+    prefix + (octave === undefined ? transposed.replace(/-?\d+$/, '') : transposed));
+}
 
 export function createLayout(preset = PRESETS[0]) {
   const fields = preset.iv.map((iv, i) => ({
@@ -62,7 +72,7 @@ export function validateLayout(input) {
   const ids = new Set();
   const fields = input.fields.map(f => {
     if (!f || typeof f.id !== 'string' || !/^[\w-]{1,40}$/.test(f.id) || ids.has(f.id)
-        || !Number.isInteger(f.midi) || f.midi < MIDI_MIN || f.midi > MIDI_MAX
+        || (f.midi !== null && (!Number.isInteger(f.midi) || f.midi < MIDI_MIN || f.midi > MIDI_MAX))
         || !['top', 'bottom'].includes(f.side)
         || ![f.x, f.z, f.size, f.angle].every(Number.isFinite)
         || f.size < 0.07 || f.size > 0.4
@@ -73,6 +83,8 @@ export function validateLayout(input) {
     }
     if (f.geometry !== undefined && !fieldGeometry(f.geometry)) throw new Error('Unknown tone field geometry.');
     if (f.shape !== undefined && !['dome', 'dimple', 'pure'].includes(f.shape)) throw new Error('Unknown tone field shape.');
+    if (f.autoSlot !== undefined && !/^(n\d{1,2}|mutant|free)$/.test(f.autoSlot)) throw new Error('Unknown automatic field slot.');
+    if (f.autoSize !== undefined && (!Number.isFinite(f.autoSize) || f.autoSize < 0.07 || f.autoSize > 0.4)) throw new Error('Invalid automatic field size.');
     if (f.side === 'bottom' && portBlocked(f, f.x, f.z, portRadius(input) - 0.002)) {
       throw new Error('Bottom fields must leave the central sound port clear.');
     }
@@ -80,8 +92,11 @@ export function validateLayout(input) {
     return { id: f.id, midi: f.midi, side: f.side, x: f.x, z: f.z, size: f.size, angle: f.angle,
       ...(f.aspect !== undefined ? { aspect: f.aspect } : {}),
       ...(f.geometry !== undefined ? { geometry: f.geometry } : {}),
-      ...(f.shape !== undefined ? { shape: f.shape } : {}) };
+      ...(f.shape !== undefined ? { shape: f.shape } : {}),
+      ...(f.autoSlot !== undefined ? { autoSlot: f.autoSlot } : {}),
+      ...(f.autoSize !== undefined ? { autoSize: f.autoSize } : {}) };
   });
+  if (input.manualPlacement !== undefined && typeof input.manualPlacement !== 'boolean') throw new Error('Invalid placement mode.');
   return {
     version: 1, title: String(input.title || 'My handpan').slice(0, 64),
     description: String(input.description || '').slice(0, 240),
@@ -90,16 +105,17 @@ export function validateLayout(input) {
     custom: !!input.custom, transpose: Number.isInteger(input.transpose) ? input.transpose : 0,
     a4: input.a4, finish: ['ember', 'silver', 'rose'].includes(input.finish) ? input.finish : 'ember',
     ...(input.sound !== undefined ? { sound: input.sound } : {}),
+    ...(input.manualPlacement !== undefined ? { manualPlacement: input.manualPlacement } : {}),
     fields,
   };
 }
 
 export function transposeLayout(layout, delta) {
-  if (!Number.isInteger(delta) || layout.fields.some(f => f.midi + delta < MIDI_MIN || f.midi + delta > MIDI_MAX)) {
+  if (!Number.isInteger(delta) || layout.fields.some(f => f.midi !== null && (f.midi + delta < MIDI_MIN || f.midi + delta > MIDI_MAX))) {
     throw new Error('That would move a note outside the supported F♯0–C7 range.');
   }
   const next = clone(layout);
-  next.fields.forEach(f => { f.midi += delta; });
+  next.fields.forEach(f => { if (f.midi !== null) f.midi += delta; });
   next.transpose += delta;
   return next;
 }
@@ -171,7 +187,7 @@ export function arrangementInfo(layout) {
 
 export function restoreCurrent(input) {
   const layout = validateLayout(input);
-  if (layout.custom) return layout;
+  if (layout.custom || layout.manualPlacement) return layout;
   const legacyTitles = ['D Kurd', 'D Celtic Minor', 'D Amara', 'F Low Pygmy', 'C# Annaziska',
     'E La Sirena', 'D Hijaz', 'F Aegean', 'D Sabye', 'C# Raga Desi', 'F Blues', 'G Oxalis',
     'E Equinox', 'B Shang Diao', 'F Low Pygmy', 'D Kurd', 'D Kurd', 'E Integral',
@@ -203,8 +219,9 @@ export function restoreCurrent(input) {
 }
 
 export function audioLayout(layout) {
-  const fields = layout.fields.filter(f => f.side === 'top').concat(layout.fields.filter(f => f.side === 'bottom'));
-  const root = fields[0].midi;
+  const fields = layout.fields.filter(f => f.side === 'top' && f.midi !== null)
+    .concat(layout.fields.filter(f => f.side === 'bottom' && f.midi !== null));
+  const root = fields[0]?.midi ?? 60;
   return {
     fields,
     scale: { root, iv: fields.map(f => f.midi - root), flatNames: false,
