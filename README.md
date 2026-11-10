@@ -3,6 +3,36 @@
 Live apps on GitHub Pages:
 - [Singing trainer](https://manicardifrancesco.github.io/handpan/trainer.html)
 - [Handpan synthesizer](https://manicardifrancesco.github.io/handpan/)
+- [Elaia 3D handpan player](https://manicardifrancesco.github.io/handpan/Elaia-handpan-player/)
+
+## Elaia 3D handpan player
+
+Open `http://localhost:8080/Elaia-handpan-player/` using the server below, or
+follow **Elaia 3D player** from the synthesizer. Elaia adds a dedicated,
+responsive performance view, procedural WebGL metal lighting, 15 Ayasa presets
+with measured shell and field geometry, playable notes/chords, and an advanced
+editor for both shells. Change concert
+pitch (440/432 Hz), transpose, edit pitches, move/resize/rotate/add/remove fields,
+undo/redo, place notes automatically and drag them directly, save instruments
+locally with recreation URLs, share self-contained layout links, and
+import/export JSON. Published Ayasa preview recordings provide temporary sound;
+the physical-modeling engine fills in when previews are unavailable. There is
+no build step or runtime package installation.
+
+See [Elaia documentation](Elaia-handpan-player/README.md) for controls,
+implementation, and validation.
+
+Publishing is handled by [Deploy GitHub Pages](.github/workflows/pages.yml).
+Every push to `master` publishes the static repository root, preserving the
+synthesizer, `trainer.html`, and Elaia's shared `src/` modules and AudioWorklet.
+There is no build step. The workflow can also be run manually from the Actions
+tab on `master`. GitHub Pages uses **GitHub Actions** as its publishing source.
+The deployment result appears in the `github-pages` environment.
+
+```sh
+node tests/elaia.test.mjs
+node tests/elaia-browser.test.cjs http://127.0.0.1:8080
+```
 
 ## Singing trainer
 
