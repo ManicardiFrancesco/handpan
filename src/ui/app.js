@@ -39,6 +39,12 @@ class App {
       sel.appendChild(g);
     }
     for (let m = 16; m <= 64; m++) this.el.root.add(new Option(noteName(m) + '  (' + midiToFreq(m).toFixed(1) + ' Hz)', String(m)));
+    const requestedScale = new URLSearchParams(location.search).get('scale');
+    const requestedIndex = SCALES.findIndex(s => s.id === requestedScale);
+    if (requestedIndex >= 0) {
+      sel.value = String(requestedIndex);
+      this.el.root.value = String(SCALES[requestedIndex].root);
+    }
 
     this.renderer = new Renderer3D(this.el.view);
     this.chordPanel = new ChordPanel(this.el.chords, {

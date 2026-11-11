@@ -11,6 +11,14 @@
 
 export const FAMILIES = ['Classic', 'Exotic', 'Mutant', 'Impossible'];
 
+// Owner-confirmed Lombardo layout, preserving the D3 ding at index zero.
+export const D_AEGEAN_18 = {
+  id:'d-aegean-18', name:'D Aegean 18 (Lombardo)', family:'Exotic',
+  root:50, iv:[0,4,7,11,12,16,18,19,23,24,28, 2,6,9,14,26,21,-3],
+  bottomFrom:11, flatNames:false,
+  note:'Lombardo D Aegean 18. Eleven top fields and seven bottom fields, from B2 to F#5.',
+};
+
 export const SCALES = [
   /* ------------------------------------------------------------- Classic -- */
   { name:'D Kurd 9', family:'Classic', root:50, iv:[0,7,8,10,12,14,15,17,19],
@@ -78,6 +86,8 @@ export const SCALES = [
   { name:'F#0 Gravity Well 18 (impossible)', family:'Impossible', root:18,
     iv:[0,19,24,31,36,38,43,45,48,50,52,55,57,60,62,64,67,69], bottomFrom:9,
     note:'F#0 (23.1 Hz). Nearly six octaves of range in one instrument.' },
+  // Preserve the existing layouts' stored numerical indices.
+  D_AEGEAN_18,
 ];
 
 /** Convenience: indices grouped by family, preserving list order. */

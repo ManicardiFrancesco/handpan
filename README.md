@@ -34,11 +34,87 @@ node tests/elaia.test.mjs
 node tests/elaia-browser.test.cjs http://127.0.0.1:8080
 ```
 
+## Handpan tuning studio
+
+This is a checkpoint of a separate tuning-tool task, unrelated to the Elaia 3D
+player work. The tuner shares the original synthesizer's audio engine and scale
+modules, but its Lombardo preset and microphone analysis belong to this tool.
+
+Open `http://localhost:8080/tuner.html` using the server below, or follow
+**Tuning studio** from the synthesizer. Pan / Tune is a standalone, responsive
+handpan tuner with no build step or runtime dependencies.
+
+The default instrument is the owner's confirmed Lombardo D Aegean 18 at A4 = 440 Hz:
+
+- Top: D3, F#3, A3, C#4, D4, F#4, G#4, A4, C#5, D5, F#5.
+- Bottom, in the supplied field order: E3, G#3, B3, E4, E5, B4, B2.
+
+Select a field and enable the microphone. The three independent measurements
+compare the fundamental, octave and compound fifth with ideal 1:2:3 frequencies.
+Each has a moving strobe, cents deviation, measured frequency and tolerance
+indicator. For overtones, **interval error** compares the actual measured partial
+against 2× or 3× the actual measured fundamental, distinguishing overall note
+detuning from a mistuned overtone. The compound fifth is the third harmonic,
+an octave plus a pure fifth above the fundamental, not the 1.5× simple fifth.
+
+**Play modeled handpan** uses the original AudioWorklet modal physical-modeling
+synthesizer: steel resonators, independent decays, split mode pairs, shell/cavity
+resonance, sympathetic coupling and room reverb. The tuner calibrates the three
+principal modes to exact 1:2:3 while retaining the model's timbre; a gentle
+reference strike avoids hard-strike pitch bending. Isolated 1×/2×/3× buttons
+remain pure tones for checking individual partials. **Play on tap** auditions
+any of the 18 fields when the microphone is off, and the playground link opens
+the same Lombardo layout in the original 3D synthesizer.
+
+**Capture strike**
+records up to five seconds locally, then **Your handpan** plays it for A/B
+comparison. Selecting another note discards the capture. Use headphones to keep
+reference playback out of microphone measurements. Recording is explicit;
+there is no server upload, and recordings are not persisted.
+
+Pitch history displays the last 12 seconds with silence gaps, and Spectrum shows
+the live FFT with ideal partial markers. **Try a demo** sends intentionally
+detuned oscillators through the same analyser and detector; demo readings are
+clearly labeled. The settings dialog allows A4 calibration and all 18 note names
+to be edited; only instrument settings are saved to localStorage.
+
+Microphone access requires HTTPS or localhost. Echo cancellation, noise
+suppression and automatic gain control are requested off. Hiding the page
+stops microphone and demo input. Tone-field positions are schematic, not an
+exact geometric map of the physical handpan.
+
+Detection uses a 32768-point browser Blackman FFT, zero temporal FFT smoothing,
+and logarithmic parabolic peak interpolation around each expected partial
+(±85 cents). Analysis updates approximately every 85 ms, after an initial
+900 ms settling period. Three consecutive coherent observations are required
+before displaying a partial, suppressing startup transients without averaging
+the measured pitch. Low levels, missing peaks and broad noise are rejected.
+The FFT window spans approximately 0.68–0.74 seconds at common sample rates:
+let a gently struck field ring for about a second. Transient pitch bends,
+neighboring resonances and closely spaced split modes can influence a reading;
+this is a diagnostic aid rather than certified tuning equipment.
+
+Validation:
+
+```sh
+node tests/tuner.test.mjs
+node tests/tuner-browser.test.cjs http://127.0.0.1:8080
+node tests/tuner-reference.test.cjs
+node tests/tuner-reference-browser.test.cjs http://127.0.0.1:8080
+```
+
+The browser test measures all 54 principal partials through real Chromium
+audio analysis, and covers missing fundamentals, silence, mobile layouts,
+local A/B recording, microphone lifecycle, demo and saved concert pitch.
+The reference tests check all 54 calibrated modal frequencies and real
+AudioWorklet output for all 18 fields, pure partial playback, shared audio
+context, volume, stop, calibration, and the 3D synthesizer preset.
+
 ## Singing trainer
 
 Open `http://localhost:8080/trainer.html` after starting the server below.
 Handpan Voice offers microphone pitch detection, visual higher/lower guidance,
-reference tones, 14 classic/exotic handpan layouts (including F Aegean 18), and
+reference tones, 15 classic/exotic handpan layouts (including D and F Aegean 18), and
 octave adjustment. Audio is processed locally and is not recorded or uploaded.
 Use headphones to prevent reference-tone pickup. Microphone access requires
 localhost or HTTPS; allow permission when prompted. The detector supports
@@ -168,11 +244,11 @@ The details that matter most, in rough order of audibility:
 
 ## Scales
 
-23 layouts in four families:
+24 layouts in four families:
 
 - **Classic** (6) — D Kurd, D Celtic Minor, D Amara/Ysha, F Low Pygmy,
   C# Annaziska, E La Sirena
-- **Exotic** (8) — D Hijaz, F Aegean 18, D Sabye, C# Raga Desi, F Blues,
+- **Exotic** (9) — D Aegean 18 (Lombardo), D Hijaz, F Aegean 18, D Sabye, C# Raga Desi, F Blues,
   G Oxalis, E Equinox, B Shang Diao
 - **Mutant** (5) — 14- to 21-note layouts that use the bottom shell:
   F Low Pygmy 18, D Kurd 14, D Kurd 21, E Integral 21, C Harmonic Minor 21
@@ -195,7 +271,7 @@ is identified live, tolerating one missing or one extra note.
 ```
 index.html                    markup only
 src/model/notes.js            note names, MIDI/frequency, seeded RNG
-src/model/scales.js           the 23 scale layouts
+src/model/scales.js           the 24 scale layouts
 src/model/instrument.js       mode table -> resonator bank + coupling matrix
 src/dsp/handpan-processor.js  the AudioWorklet: resonators, excitation, limiter
 src/audio/engine.js           Web Audio graph, worklet lifecycle, strike dispatch

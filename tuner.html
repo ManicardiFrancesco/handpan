@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f5ef" />
+    <title>Pan / Tune — Handpan tuning studio</title>
+    <link rel="stylesheet" href="src/tuner/style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="tuner.html"
+        ><span class="brand-mark">◉</span> pan<span>/</span>tune<span class="brand-dot">.</span></a
+      >
+      <div class="sidebar-caption">YOUR LISTENING SPACE</div>
+      <nav aria-label="Tools">
+        <a class="nav-item active" href="tuner.html"><span>◎</span> Tuning studio <i>01</i></a>
+        <a class="nav-item" href="index.html?scale=d-aegean-18"
+          ><span>◌</span> Handpan playground <span>↗</span></a
+        >
+        <a class="nav-item" href="trainer.html"><span>♫</span> Vocal trainer <span>↗</span></a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="small-pan"><span>✦</span></div>
+        <h3>A little closer to harmony.</h3>
+        <p>One note. Three partials.<br />Listen to what’s underneath.</p>
+        <span class="local-badge"><b></b> Audio stays on your device</span>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div>
+          <span class="breadcrumb">Workspace</span><span class="slash">/</span
+          ><span>Tuning studio</span>
+        </div>
+        <button class="quiet-button" id="help-button">ⓘ <span>How it works</span></button>
+      </header>
+      <section class="page-heading">
+        <div>
+          <div class="eyebrow">LISTEN. COMPARE. FIND YOUR BALANCE.</div>
+          <h1>Your handpan, in harmony<span>.</span></h1>
+          <p>A clearer view of every note — and the overtones that make it yours.</p>
+        </div>
+        <span class="version-badge">HANDPAN TUNING STUDIO <span>↗</span></span>
+      </section>
+      <div class="workspace">
+        <section class="instrument panel">
+          <div class="section-label">
+            <span>01 — YOUR INSTRUMENT</span
+            ><button class="icon-button" id="settings-button" aria-label="Instrument settings">
+              ⚙
+            </button>
+          </div>
+          <h2>D Aegean <span>18</span></h2>
+          <div class="instrument-meta">
+            LOMBARDO HANDPAN <span>•</span> A4 <b id="pitch-label">440</b> Hz
+          </div>
+          <div class="shell-switch" role="group" aria-label="Handpan side">
+            <button id="top-shell" class="selected" aria-pressed="true">
+              Top shell <span>11</span></button
+            ><button id="bottom-shell" aria-pressed="false">Bottom shell <span>7</span></button>
+          </div>
+          <div id="handpan" class="handpan" aria-label="Schematic note selector">
+            <div class="pan-ridge"></div>
+            <div class="pan-inner"></div>
+            <span class="pan-signature">LOMBARDO</span>
+          </div>
+          <div class="layout-hint">Tap a field to select a note <span>↗</span></div>
+          <label class="audition-option"
+            ><input type="checkbox" id="audition-notes" checked /> Play on tap
+            <span>when mic is off</span></label
+          >
+          <div id="note-list" class="note-list" aria-label="Notes"></div>
+          <div class="instrument-bottom">
+            <span><b></b> 18 notes · B2 to F♯5</span><span>Schematic layout</span>
+          </div>
+          <div class="tip">
+            <span>✧</span>
+            <p>
+              <b>Let the note breathe.</b> Strike gently, then let it ring. Tap the edge to bring
+              out its overtones.
+            </p>
+          </div>
+        </section>
+        <div class="analysis">
+          <section class="tuning panel">
+            <div class="tuning-top">
+              <div class="section-label">02 — LIVE TUNING</div>
+              <span id="live-status" class="status-pill"><b></b> Mic off</span>
+            </div>
+            <div class="target-row">
+              <div>
+                <span class="target-caption"
+                  >SELECTED NOTE <span id="field-label">DING · TOP SHELL</span></span
+                >
+                <div class="target-note" id="target-note">
+                  D<sub>3</sub><span id="target-frequency">146.83 <small>Hz</small></span>
+                </div>
+              </div>
+              <div class="mic-controls">
+                <button id="microphone" class="primary-button">
+                  <span>♩</span> Enable microphone</button
+                ><button id="demo" class="demo-button">Try a demo <span>↗</span></button>
+              </div>
+            </div>
+            <div class="strobe-panel">
+              <div class="strobe-header">
+                <span><b class="mint-dot"></b> HARMONIC STROBE</span>
+                <div><span>← FLAT</span><span>SHARP →</span></div>
+              </div>
+              <div id="strobe-rows"></div>
+              <div class="strobe-footer">
+                <span id="strobe-message">Enable your mic, then strike the selected note.</span
+                ><span>STILL = IN TUNE</span>
+              </div>
+            </div>
+            <div class="tuning-footer">
+              <div>
+                <span class="input-dot"></span><span id="input-label">Waiting for microphone</span>
+                <div class="input-meter" aria-hidden="true"><div id="input-level"></div></div>
+              </div>
+              <label
+                >Tolerance
+                <select id="tolerance">
+                  <option value="3">± 3 cents</option>
+                  <option value="5" selected>± 5 cents</option>
+                  <option value="10">± 10 cents</option>
+                </select></label
+              >
+            </div>
+          </section>
+          <section
+            id="partial-cards"
+            class="partial-cards"
+            aria-label="Partial measurements"
+          ></section>
+        </div>
+        <section class="reference panel">
+          <div class="section-label"><span>03 — HEAR THE DIFFERENCE</span><span>♫</span></div>
+          <div class="reference-heading">
+            <div>
+              <h2>Your reference, on demand.</h2>
+              <p>Hear your D Aegean 18 through the physical handpan model.</p>
+            </div>
+            <span class="reference-tag">MODAL PHYSICAL MODEL</span>
+          </div>
+          <div class="reference-controls">
+            <button class="play-button" id="play-reference">
+              <span>▶</span> Play modeled handpan
+            </button>
+            <div class="partial-play" role="group" aria-label="Play an isolated partial">
+              <button data-play="1">1× <span>Fundamental</span></button
+              ><button data-play="2">2× <span>Octave</span></button
+              ><button data-play="3">3× <span>Fifth</span></button>
+            </div>
+            <button id="stop-reference" class="quiet-button">■ Stop</button
+            ><label class="volume-label"
+              >Volume
+              <input
+                id="volume"
+                aria-label="Reference volume"
+                type="range"
+                min="0"
+                max="100"
+                value="45"
+            /></label>
+          </div>
+          <div class="reference-footer">
+            <span
+              >♧ <b>Headphones recommended</b> so the mic hears your handpan, not the
+              reference.</span
+            ><span id="reference-status">Physical model · calibrated 1 : 2 : 3</span>
+          </div>
+        </section>
+        <section class="history panel">
+          <div class="chart-header">
+            <div>
+              <div class="section-label">04 — A CLOSER LOOK</div>
+              <h2>The shape of your sound.</h2>
+            </div>
+            <div class="chart-tabs" role="group" aria-label="Analysis view">
+              <button class="selected" id="history-tab" aria-pressed="true">Pitch history</button
+              ><button id="spectrum-tab" aria-pressed="false">Spectrum</button>
+            </div>
+          </div>
+          <div class="chart-legend">
+            <span><b style="background: var(--green)"></b> Fundamental</span
+            ><span><b style="background: var(--blue)"></b> Octave</span
+            ><span><b style="background: var(--orange)"></b> Fifth</span
+            ><button class="quiet-button" id="clear-history">Clear trace ↺</button>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart" aria-label="Live pitch history chart"></canvas>
+            <div id="chart-empty">
+              <span>〰</span>
+              <p>A little silence before the sound.</p>
+              <small>Your live measurements will appear here.</small>
+            </div>
+          </div>
+          <div class="chart-footer">
+            <span id="chart-description">Last 12 seconds · deviation from ideal pitch</span
+            ><span>1 cent = 1/100 of a semitone</span>
+          </div>
+        </section>
+      </div>
+      <footer class="page-footer">
+        <span>Built for the details you can hear.</span
+        ><span
+          >Local audio processing <span>·</span> A4 <b id="footer-pitch">440</b> Hz
+          <span>·</span> Just harmonic ratios</span
+        >
+      </footer>
+    </main>
+    <dialog id="help-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close help">×</button>
+        <div class="eyebrow">A MOMENT TO LISTEN</div>
+        <h2>Three partials. One beautiful note.</h2>
+          <p>
+            The modeled handpan uses resonating steel modes, body resonance and sympathetic
+            coupling. Its three principal modes are calibrated to 1:2:3. The isolated
+            Fundamental, Octave and Fifth buttons play pure tones for checking their individual
+            frequencies. Play on tap auditions fields while the microphone is off.
+          </p>
+        <p>
+          Select the tone field you’re testing, enable your microphone, and strike it gently. Allow
+          about a second for the first precise reading.
+        </p>
+        <ul>
+          <li><b>Fundamental · 1×</b> is the note’s main pitch.</li>
+          <li><b>Octave · 2×</b> should be exactly twice its frequency.</li>
+          <li>
+            <b>Compound fifth · 3×</b> sits an octave and a perfect fifth above the fundamental,
+            exactly three times its frequency. It is a pure ratio, slightly different from an
+            equal-tempered fifth.
+          </li>
+        </ul>
+        <p>
+          The stripes drift left when flat and right when sharp. Still stripes mean in tune; a dash
+          means that partial wasn’t detected. Cents show deviation from the ideal reference. The
+          interval error compares each overtone with your measured fundamental.
+        </p>
+        <p>
+          Use headphones for reference playback. “Try a demo” analyzes a generated, intentionally
+          detuned signal through the same detector. It doesn’t measure your instrument.
+        </p>
+        <button class="primary-button">Got it</button>
+      </form>
+    </dialog>
+    <dialog id="settings-dialog">
+      <form id="settings-form">
+        <button type="button" class="dialog-close" id="close-settings" aria-label="Close settings">
+          ×
+        </button>
+        <div class="eyebrow">YOUR INSTRUMENT</div>
+        <h2>Make it your own.</h2>
+        <label
+          >Concert pitch A4 (Hz)<input
+            type="number"
+            id="concert-pitch"
+            min="415"
+            max="466"
+            step="0.1"
+            value="440"
+            required /></label
+        ><label>Top notes (ding first)<textarea id="top-notes" rows="3" required></textarea></label
+        ><label>Bottom notes<textarea id="bottom-notes" rows="2" required></textarea></label>
+        <p class="settings-note">
+          Use scientific note names, e.g. D3 F#3 A3. The preset follows Lombardo’s D Aegean 18;
+          field positions are schematic.
+        </p>
+        <p id="settings-error" role="alert"></p>
+        <div class="settings-actions">
+          <button type="button" id="reset-settings" class="quiet-button">
+            Restore Lombardo preset</button
+          ><button class="primary-button">Save instrument</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="src/tuner/app.js"></script>
+  </body>
+</html>

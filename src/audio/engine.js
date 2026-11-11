@@ -5,8 +5,8 @@ import { buildInstrument, strikeAmplitudes } from '../model/instrument.js';
 const WORKLET_URL = new URL('../dsp/handpan-processor.js', import.meta.url);
 
 export class Engine {
-  constructor () {
-    this.ctx = null;
+  constructor (context = null) {
+    this.ctx = context;
     this.node = null;
     this.inst = null;
     this.starting = null;
@@ -23,7 +23,7 @@ export class Engine {
   async _start () {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) throw new Error('Web Audio is not available in this browser');
-    this.ctx = new Ctx({ latencyHint: 'interactive' });
+    this.ctx = this.ctx || new Ctx({ latencyHint: 'interactive' });
     if (!this.ctx.audioWorklet) throw new Error('AudioWorklet is not supported');
 
     await this.loadModule();

@@ -76,7 +76,7 @@ export function buildInstrument (scale, opts = {}) {
       };
     });
     notes.push({
-      ni, midi, f0, name: noteName(midi), modes,
+      ni, midi, f0, name: noteName(midi, scale.flatNames ?? true), modes,
       bottom: isBottom(scale, ni),
       slot: ni,
       // geometry, filled in by the layout pass
