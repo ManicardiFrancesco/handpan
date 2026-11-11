@@ -47,8 +47,9 @@ included in the published site; other instruments retain their existing tuning.
   offers B minor at B2, B3, and B4. Actual notes appear after playing;
   a high root with lower accompaniment is labeled with its inversion.
 - A note struck on the hidden shell produces a soft blue pulse through the
-  visible steel. It follows camera rotation and fades with the strike; damping
-  clears it. Visible fields retain their warm strike highlight.
+  visible steel at that field's actual camera projection, including its depth
+  and projected shape. It follows camera rotation and zoom and fades with the
+  strike; damping clears it. Visible fields retain their warm strike highlight.
 - Listen → Top notes, Bottom notes, or All notes plays every chosen field
   from lowest to highest, one note every 600 ms. Stop, tapping the active
   demo again, manual playing, or entering Customize ends the sequence.
@@ -235,6 +236,7 @@ node tests/elaia.test.mjs
 node tests/elaia-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-samples-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-arrangement-browser.test.cjs http://127.0.0.1:8080
+node tests/elaia-visibility-browser.test.cjs http://127.0.0.1:8080
 ```
 
 The browser test requires Playwright. Set `PW` to an installed Playwright

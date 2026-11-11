@@ -81,7 +81,9 @@ uniform float uSelectionAspect;
 uniform vec4 uHits[12];
 uniform vec4 uStrikeFields[12];
 uniform float uStrikeAspect[12];
-uniform float uHiddenHits[12];
+uniform vec3 uHiddenCenters[12];
+uniform vec4 uHiddenAxes[12];
+uniform vec3 uPixelSpace;
 
 float hash(vec3 p) {
   p = fract(p * 0.1031);
@@ -148,21 +150,26 @@ void main() {
   for (int i = 0; i < 12; i++) {
     float age = uTime - uHits[i].y;
     bool ownShell = vPosition.y * uStrikeFields[i].w > 0.0;
-    bool throughShell = !ownShell && uHiddenHits[i] > 0.5 && vDetail.z < 0.5;
+    bool throughShell = !ownShell && uHiddenCenters[i].z > 0.5 && vDetail.z < 0.5;
     if (uHits[i].x > 0.5 && age >= 0.0 && age < 1.6 && (ownShell || throughShell)) {
-      vec2 offset = vPosition.xz - uStrikeFields[i].xy;
-      float radius = length(vec2(
-        dot(offset, uHits[i].zw) / (uStrikeFields[i].z * uStrikeAspect[i]),
-        dot(offset, vec2(-uHits[i].w, uHits[i].z)) / uStrikeFields[i].z));
       float fade = exp(-age * 3.5);
       if (throughShell) {
-        // A soft blue pulse locates a hidden strike through the steel. Reuse
-        // the existing strike pass; no transparency, blur buffer, or new mesh.
+        // Project the hidden field itself, including its depth. The same X/Z
+        // on the visible shell appears elsewhere when the instrument tilts.
+        vec2 screen = vec2(gl_FragCoord.x * uPixelSpace.x,
+          uPixelSpace.z - gl_FragCoord.y * uPixelSpace.y);
+        vec2 offset = screen - uHiddenCenters[i].xy;
+        float radius = length(vec2(dot(offset, uHiddenAxes[i].xy),
+          dot(offset, uHiddenAxes[i].zw)));
         float mask = 1.0 - smoothstep(0.45, 0.9, radius);
         float halo = exp(-pow((radius - 0.5 - age * 0.12) * 9.0, 2.0));
         color = mix(color, vec3(0.025, 0.09, 0.16), fade * mask * 0.3);
         color += fade * mask * vec3(0.35, 0.7, 1.4) * (0.12 + halo * 0.5);
       } else {
+        vec2 offset = vPosition.xz - uStrikeFields[i].xy;
+        float radius = length(vec2(
+          dot(offset, uHits[i].zw) / (uStrikeFields[i].z * uStrikeAspect[i]),
+          dot(offset, vec2(-uHits[i].w, uHits[i].z)) / uStrikeFields[i].z));
         float wave = exp(-pow((radius - age * 1.25) * 14.0, 2.0));
         float rim = exp(-pow((radius - 0.91) * 32.0, 2.0));
         float mask = 1.0 - smoothstep(1.0, 1.2, radius);
@@ -194,7 +201,7 @@ export class HandpanRenderer {
     gl.attachShader(this.program, vs); gl.attachShader(this.program, fs); gl.linkProgram(this.program);
     gl.deleteShader(vs); gl.deleteShader(fs);
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(this.program));
-    this.uniforms = Object.fromEntries(['uNormals', 'uMapped', 'uNormalSize', 'uVP', 'uEye', 'uColor', 'uRoughness', 'uTime', 'uEdit', 'uSelection', 'uSelectionRotation', 'uSelectionAspect', 'uHits[0]', 'uStrikeFields[0]', 'uStrikeAspect[0]', 'uHiddenHits[0]'].map(n => [n, gl.getUniformLocation(this.program, n)]));
+    this.uniforms = Object.fromEntries(['uNormals', 'uMapped', 'uNormalSize', 'uVP', 'uEye', 'uColor', 'uRoughness', 'uTime', 'uEdit', 'uSelection', 'uSelectionRotation', 'uSelectionAspect', 'uHits[0]', 'uStrikeFields[0]', 'uStrikeAspect[0]', 'uHiddenCenters[0]', 'uHiddenAxes[0]', 'uPixelSpace'].map(n => [n, gl.getUniformLocation(this.program, n)]));
     this.attributes = Object.fromEntries(['aPosition', 'aNormal', 'aDetail'].map(n => [n, gl.getAttribLocation(this.program, n)]));
     this.normalTexture = gl.createTexture();
     this.buffer = gl.createBuffer();
@@ -207,6 +214,8 @@ export class HandpanRenderer {
     this.strikeFields = new Float32Array(48);
     this.strikeAspect = new Float32Array(12).fill(0.82);
     this.hiddenHits = new Float32Array(12);
+    this.hiddenCenters = new Float32Array(36);
+    this.hiddenAxes = new Float32Array(48);
     for (let i = 0; i < 12; i++) this.hits[i * 4] = -1;
     this.hitIndex = 0; this.layout = null; this.selected = null; this.edit = false;
     this.dirty = true; this.activeUntil = 0; this.positions = [];
@@ -602,6 +611,27 @@ export class HandpanRenderer {
     for (let i = 0; i < 12; i++) {
       const position = this.positions[this.hits[i * 4] - 1];
       this.hiddenHits[i] = position && !position.visible ? 1 : 0;
+      this.hiddenCenters[i * 3 + 2] = this.hiddenHits[i];
+      const age = time - this.hits[i * 4 + 1];
+      if (!this.hiddenHits[i] || age < 0 || age >= 1.6) continue;
+      const f = position.field, c = Math.cos(f.angle), s = Math.sin(f.angle);
+      const axis = (dx, dz) => {
+        const a = this.project(this.surfaceModel.sample(f.x + dx, f.z + dz, f.side).slice(0, 3));
+        const b = this.project(this.surfaceModel.sample(f.x - dx, f.z - dz, f.side).slice(0, 3));
+        return [(a.x - b.x) / 2, (a.y - b.y) / 2];
+      };
+      const a = axis(c * f.size * (f.aspect ?? 0.82), s * f.size * (f.aspect ?? 0.82));
+      const b = axis(-s * f.size, c * f.size);
+      const determinant = a[0] * b[1] - a[1] * b[0];
+      this.hiddenCenters.set([position.x, position.y], i * 3);
+      if (Math.abs(determinant) > 1) {
+        this.hiddenAxes.set([b[1] / determinant, -b[0] / determinant,
+          -a[1] / determinant, a[0] / determinant], i * 4);
+      } else {
+        // Keep an edge-on strike legible without a singular projection.
+        const radius = Math.max(8, Math.min(position.radius, 24));
+        this.hiddenAxes.set([1 / radius, 0, 0, 1 / radius], i * 4);
+      }
     }
     const gl = this.gl, u = this.uniforms;
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -628,7 +658,9 @@ export class HandpanRenderer {
     gl.uniform4fv(u['uHits[0]'], this.hits);
     gl.uniform4fv(u['uStrikeFields[0]'], this.strikeFields);
     gl.uniform1fv(u['uStrikeAspect[0]'], this.strikeAspect);
-    gl.uniform1fv(u['uHiddenHits[0]'], this.hiddenHits);
+    gl.uniform3fv(u['uHiddenCenters[0]'], this.hiddenCenters);
+    gl.uniform4fv(u['uHiddenAxes[0]'], this.hiddenAxes);
+    gl.uniform3f(u.uPixelSpace, this.width / this.canvas.width, this.height / this.canvas.height, this.height);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.drawElements(gl.TRIANGLES, this.indexCount, this.largeIndices ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
     return true;

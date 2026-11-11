@@ -31,6 +31,45 @@ const check = (value, message) => { assert.ok(value, message); count++; };
         && controls.every(c => r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom);
     });
   });
+  const strikePixels = (page, camera) => page.evaluate(camera => {
+    __elaia.damp();
+    const r = __elaia.renderer, t = performance.now() / 1000;
+    r.pitch = r.targetPitch = camera.pitch; r.yaw = camera.yaw;
+    r.setZoom(camera.zoom); r.draw(t);
+    const f = r.layout.fields.find(f => f.side === camera.side && f.id !== 'n0');
+    const actual = r.project(r.surfaceModel.sample(f.x, f.z, f.side).slice(0, 3));
+    const opposite = r.project([f.x, r.heightAt(f.x, f.z, f.side === 'top' ? 'bottom' : 'top'), f.z]);
+    const pixels = () => {
+      const data = new Uint8Array(r.canvas.width * r.canvas.height * 4);
+      r.gl.readPixels(0, 0, r.canvas.width, r.canvas.height, r.gl.RGBA, r.gl.UNSIGNED_BYTE, data);
+      return data;
+    };
+    const before = pixels(), vertices = r.vertexCount, resolution = r.normalSize;
+    r.strike(f.id, t); r.draw(t + 0.12);
+    const after = pixels(), slot = (r.hitIndex - 1) % 12;
+    let changed = 0, sumX = 0, sumY = 0;
+    for (let i = 0; i < before.length; i += 4) {
+      if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1]) + Math.abs(before[i + 2] - after[i + 2]) > 10) {
+        const pixel = i / 4;
+        changed++;
+        sumX += (pixel % r.canvas.width + 0.5) * r.width / r.canvas.width;
+        sumY += r.height - (Math.floor(pixel / r.canvas.width) + 0.5) * r.height / r.canvas.height;
+      }
+    }
+    const centre = { x: sumX / changed, y: sumY / changed };
+    return {
+      changed, hidden: r.hiddenHits[slot], centre,
+      error: Math.hypot(centre.x - actual.x, centre.y - actual.y),
+      wrongError: Math.hypot(centre.x - opposite.x, centre.y - opposite.y),
+      mesh: vertices === r.vertexCount && resolution === r.normalSize, glError: r.gl.getError(),
+    };
+  }, camera);
+  const chordAligned = (page, id) => page.evaluate(id => {
+    const r = __elaia.renderer, index = r.layout.fields.findIndex(f => f.id === id);
+    const p = r.project(r.surfaceModel.sample(r.layout.fields[index].x, r.layout.fields[index].z, r.layout.fields[index].side).slice(0, 3));
+    return r.hits.some((v, i) => i % 4 === 0 && v === index + 1 && r.hiddenHits[i / 4] === 1
+      && Math.hypot(r.hiddenCenters[i / 4 * 3] - p.x, r.hiddenCenters[i / 4 * 3 + 1] - p.y) < 0.01);
+  }, id);
   try {
     const { context, page } = await open({ viewport: { width: 1440, height: 900 } });
     const clickable = await page.evaluate(async () => {
@@ -106,28 +145,17 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     }), 'The compact opening renders a real steel collar and remains separate from tone fields');
     await page.screenshot({ path: path.join(SHOTS, 'after-bottom-desktop.png') });
     for (const side of ['bottom', 'top']) {
-      const feedback = await page.evaluate(side => {
-        __elaia.damp();
-        const r = __elaia.renderer, t = performance.now() / 1000, opposite = side === 'top' ? 'bottom' : 'top';
-        r.pitch = r.targetPitch = side === 'bottom' ? 1.32 : -1.32; r.dirty = true; r.draw(t);
-        const f = __elaia.layout.fields.find(f => f.side === side);
-        const p = r.project([f.x, r.heightAt(f.x, f.z, opposite), f.z]);
-        const size = 60, scale = r.canvas.width / r.width;
-        const x = Math.round(p.x * scale - size / 2), y = Math.round(r.canvas.height - p.y * scale - size / 2);
-        const pixels = () => {
-          const data = new Uint8Array(size * size * 4); r.gl.readPixels(x, y, size, size, r.gl.RGBA, r.gl.UNSIGNED_BYTE, data); return data;
-        };
-        const before = pixels(), vertices = r.vertexCount, resolution = r.normalSize;
-        r.strike(f.id, t); r.draw(t + 0.12);
-        const after = pixels(), slot = (r.hitIndex - 1) % 12;
-        let changed = 0;
-        for (let i = 0; i < before.length; i += 4) {
-          if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1]) + Math.abs(before[i + 2] - after[i + 2]) > 10) changed++;
-        }
-        return { changed, hidden: r.hiddenHits[slot], mesh: vertices === r.vertexCount && resolution === r.normalSize, error: r.gl.getError() };
-      }, side);
-      check(feedback.hidden === 1 && feedback.changed > 80 && feedback.error === 0, `An unseen ${side} note changes actual pixels on the opposite shell`);
-      check(feedback.mesh, 'Hidden-note feedback retains the full mesh and normal detail');
+      for (const [pitch, yaw, zoom] of [[0.85, 0.4, 1.15], [1.12, -0.75, 0.8], [1.32, 1.2, 1.4]]) {
+        const camera = { side, pitch: pitch * (side === 'bottom' ? 1 : -1), yaw, zoom };
+        const feedback = await strikePixels(page, camera);
+        check(feedback.hidden === 1 && feedback.changed > 80 && feedback.glError === 0,
+          `An unseen ${side} note produces a real pulse at pitch ${camera.pitch}`);
+        check(feedback.error < 4,
+          `The rendered pulse follows the actual ${side} note projection (${feedback.error.toFixed(2)}px error), including depth, rotation, and zoom`);
+        if (pitch === 0.85) check(feedback.wrongError > feedback.error + 10,
+          `The ${side} pulse avoids the old position on the opposite shell`);
+        check(feedback.mesh, 'Hidden-note feedback retains the full mesh and normal detail');
+      }
       await page.evaluate(side => {
         const r = __elaia.renderer; r.pitch = r.targetPitch = side === 'top' ? 1.32 : -1.32;
         r.dirty = true; r.draw(performance.now() / 1000);
@@ -152,10 +180,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       const r = __elaia.renderer, index = __elaia.layout.fields.findIndex(f => f.id === id);
       return r.hits.some((v, i) => i % 4 === 0 && v === index + 1 && r.hiddenHits[i / 4] === 1);
     }, chord.hidden);
-    check(await page.evaluate(id => {
-      const r = __elaia.renderer, index = __elaia.layout.fields.findIndex(f => f.id === id);
-      return r.hits.some((v, i) => i % 4 === 0 && v === index + 1 && r.hiddenHits[i / 4] === 1);
-    }, chord.hidden), 'Pressing an actual chord button signals its hidden bottom-shell voice');
+    check(await chordAligned(page, chord.hidden), 'Pressing an actual chord button projects its hidden bottom voice at the correct note');
     await page.screenshot({ path: path.join(SHOTS, 'after-hidden-note-desktop.png') });
     await page.click('#damp-btn');
     check(await page.evaluate(() => __elaia.renderer.hits.every((v, i) => i % 4 !== 0 || v === -1)), 'Damping removes both visible and hidden strike feedback');
@@ -168,7 +193,13 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     for (const [width, height] of [[390, 844], [320, 568], [844, 390]]) {
       await mobile.setViewportSize({ width, height });
       await mobile.waitForFunction(() => __elaia.renderer.width === document.getElementById('stage').clientWidth);
-      await mobile.evaluate(() => { __elaia.renderer.setZoom(1.3); });
+      const feedback = await strikePixels(mobile, { side: 'bottom', pitch: 0.85, yaw: 0.4, zoom: 1 });
+      check(feedback.hidden === 1 && feedback.changed > 80 && feedback.glError === 0 && feedback.error < 4,
+        `${width}px phone pulse is centred on the actual hidden note at 2× pixel density (${feedback.error.toFixed(2)}px error)`);
+      await mobile.evaluate(() => {
+        __elaia.damp(); const r = __elaia.renderer;
+        r.pitch = r.targetPitch = 1.12; r.yaw = -0.12; r.setZoom(1.3);
+      });
       await mobile.waitForFunction(() => !__elaia.renderer.dirty);
       await mobile.waitForFunction(() => [...document.querySelectorAll('.field-label:not([hidden])')].some(el => {
         const y = parseFloat(el.style.top); return y < 100 || y > __elaia.renderer.height - 115;
@@ -192,9 +223,10 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       return r.hits.some((v, i) => i % 4 === 0 && v === index + 1 && r.hiddenHits[i / 4] === 1);
     }, mobileChord.hidden);
     check(await mobile.evaluate(() => __elaia.audio.started && __elaia.renderer.gl.getError() === 0), 'Touching a chord on a phone starts audio and its hidden-shell pulse');
+    check(await chordAligned(mobile, mobileChord.hidden), 'The phone chord pulse uses the hidden note projection after resizing and zooming');
     await mobile.screenshot({ path: path.join(SHOTS, 'after-hidden-note-390px.png') });
     await mobileContext.close();
     check(errors.length === 0, 'No browser exceptions');
-    console.log(`Elaia visibility: ${count} checks passed — zoom labels, compact gu collar, real hidden-shell pixels, chord feedback, and phone layouts.`);
+    console.log(`Elaia visibility: ${count} checks passed — zoom labels, compact gu collar, pixel-accurate hidden-note positions, chord feedback, and phone layouts.`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });
