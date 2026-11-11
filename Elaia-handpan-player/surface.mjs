@@ -79,7 +79,14 @@ export class HandpanSurface {
   constructor(layout) {
     this.port = portRadius(layout);
     this.profile = shellGeometry(layout.arrangement);
-    this.tables = Object.fromEntries(['top', 'bottom'].map(side => [side, profileTable(this.profile[side])]));
+    const [edge, height] = this.profile.bottom[0];
+    const bottom = this.port < edge ? [
+      [this.port, height + 0.018],
+      [this.port + (edge - this.port) * 0.16, height + 0.004],
+      [this.port + (edge - this.port) * 0.4, height - 0.006],
+      ...this.profile.bottom,
+    ] : this.profile.bottom;
+    this.tables = { top: profileTable(this.profile.top), bottom: profileTable(bottom) };
     this.fields = layout.fields.map(f => this.prepare({ ...f, shape: fieldShape(f, layout) }));
   }
 
@@ -183,15 +190,26 @@ export class HandpanSurface {
     if (!chosen) return [x, y, z, ...unit([-gx * direction, direction, -gz * direction])];
     const f = chosen, dx = x - f.x, dz = z - f.z, length = Math.hypot(dx, dz);
     const fillet = 0.0055, easing = Math.exp(-border / fillet);
-    const weight = Math.tanh((border - fillet * (1 - easing)) / f.shoulder);
+    const rawWeight = Math.tanh((border - fillet * (1 - easing)) / f.shoulder);
+    let weight = rawWeight, centreBlend = 1, centreSlope = 0;
+    // A directional contour has no defined angle at its centre. Blend to the
+    // exact field plane there, keeping ray-hit normals stable at any zoom.
+    const centreRadius = f.size * 0.08;
+    if (length < centreRadius) {
+      const t = length / centreRadius;
+      centreBlend = t * t * (3 - 2 * t);
+      centreSlope = 6 * t * (1 - t) / centreRadius;
+      weight = 1 + (rawWeight - 1) * centreBlend;
+    }
     const plane = f.py + f.px * dx + f.pz * dz;
     if (normal) {
-      const factor = (1 - weight * weight) * (1 - easing) / f.shoulder;
+      const factor = (1 - rawWeight * rawWeight) * (1 - easing) / f.shoulder;
       const localU = dx * f.cos + dz * f.sin, localV = -dx * f.sin + dz * f.cos;
       const ddx = length > 1e-8 ? -dx / length + f.size * borderAngle * (-localV * f.cos - localU * f.sin) / (length * length) : 0;
       const ddz = length > 1e-8 ? -dz / length + f.size * borderAngle * (-localV * f.sin + localU * f.cos) / (length * length) : 0;
-      gx += (f.px - gx) * weight + (plane - y) * factor * ddx;
-      gz += (f.pz - gz) * weight + (plane - y) * factor * ddz;
+      const centreDerivative = (rawWeight - 1) * centreSlope / (length || 1);
+      gx += (f.px - gx) * weight + (plane - y) * (factor * ddx * centreBlend + centreDerivative * dx);
+      gz += (f.pz - gz) * weight + (plane - y) * (factor * ddz * centreBlend + centreDerivative * dz);
     }
     y += (plane - y) * weight;
     const q = [x - f.O[0], y - f.O[1], z - f.O[2]], u = dot(q, f.U), v = dot(q, f.V);

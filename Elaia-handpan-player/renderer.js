@@ -81,6 +81,7 @@ uniform float uSelectionAspect;
 uniform vec4 uHits[12];
 uniform vec4 uStrikeFields[12];
 uniform float uStrikeAspect[12];
+uniform float uHiddenHits[12];
 
 float hash(vec3 p) {
   p = fract(p * 0.1031);
@@ -146,16 +147,27 @@ void main() {
   }
   for (int i = 0; i < 12; i++) {
     float age = uTime - uHits[i].y;
-    if (uHits[i].x > 0.5 && age >= 0.0 && age < 1.6 && vPosition.y * uStrikeFields[i].w > 0.0) {
+    bool ownShell = vPosition.y * uStrikeFields[i].w > 0.0;
+    bool throughShell = !ownShell && uHiddenHits[i] > 0.5 && vDetail.z < 0.5;
+    if (uHits[i].x > 0.5 && age >= 0.0 && age < 1.6 && (ownShell || throughShell)) {
       vec2 offset = vPosition.xz - uStrikeFields[i].xy;
       float radius = length(vec2(
         dot(offset, uHits[i].zw) / (uStrikeFields[i].z * uStrikeAspect[i]),
         dot(offset, vec2(-uHits[i].w, uHits[i].z)) / uStrikeFields[i].z));
       float fade = exp(-age * 3.5);
-      float wave = exp(-pow((radius - age * 1.25) * 14.0, 2.0));
-      float rim = exp(-pow((radius - 0.91) * 32.0, 2.0));
-      float mask = 1.0 - smoothstep(1.0, 1.2, radius);
-      color += fade * mask * vec3(1.35, 0.8, 0.31) * (0.26 + rim * 0.6 + wave * 0.4);
+      if (throughShell) {
+        // A soft blue pulse locates a hidden strike through the steel. Reuse
+        // the existing strike pass; no transparency, blur buffer, or new mesh.
+        float mask = 1.0 - smoothstep(0.45, 0.9, radius);
+        float halo = exp(-pow((radius - 0.5 - age * 0.12) * 9.0, 2.0));
+        color = mix(color, vec3(0.025, 0.09, 0.16), fade * mask * 0.3);
+        color += fade * mask * vec3(0.35, 0.7, 1.4) * (0.12 + halo * 0.5);
+      } else {
+        float wave = exp(-pow((radius - age * 1.25) * 14.0, 2.0));
+        float rim = exp(-pow((radius - 0.91) * 32.0, 2.0));
+        float mask = 1.0 - smoothstep(1.0, 1.2, radius);
+        color += fade * mask * vec3(1.35, 0.8, 0.31) * (0.26 + rim * 0.6 + wave * 0.4);
+      }
     }
   }
   if (vDetail.z > 0.5 && vDetail.z < 1.5) color *= 1.16;
@@ -182,7 +194,7 @@ export class HandpanRenderer {
     gl.attachShader(this.program, vs); gl.attachShader(this.program, fs); gl.linkProgram(this.program);
     gl.deleteShader(vs); gl.deleteShader(fs);
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(this.program));
-    this.uniforms = Object.fromEntries(['uNormals', 'uMapped', 'uNormalSize', 'uVP', 'uEye', 'uColor', 'uRoughness', 'uTime', 'uEdit', 'uSelection', 'uSelectionRotation', 'uSelectionAspect', 'uHits[0]', 'uStrikeFields[0]', 'uStrikeAspect[0]'].map(n => [n, gl.getUniformLocation(this.program, n)]));
+    this.uniforms = Object.fromEntries(['uNormals', 'uMapped', 'uNormalSize', 'uVP', 'uEye', 'uColor', 'uRoughness', 'uTime', 'uEdit', 'uSelection', 'uSelectionRotation', 'uSelectionAspect', 'uHits[0]', 'uStrikeFields[0]', 'uStrikeAspect[0]', 'uHiddenHits[0]'].map(n => [n, gl.getUniformLocation(this.program, n)]));
     this.attributes = Object.fromEntries(['aPosition', 'aNormal', 'aDetail'].map(n => [n, gl.getAttribLocation(this.program, n)]));
     this.normalTexture = gl.createTexture();
     this.buffer = gl.createBuffer();
@@ -194,6 +206,7 @@ export class HandpanRenderer {
     this.hits = new Float32Array(48);
     this.strikeFields = new Float32Array(48);
     this.strikeAspect = new Float32Array(12).fill(0.82);
+    this.hiddenHits = new Float32Array(12);
     for (let i = 0; i < 12; i++) this.hits[i * 4] = -1;
     this.hitIndex = 0; this.layout = null; this.selected = null; this.edit = false;
     this.dirty = true; this.activeUntil = 0; this.positions = [];
@@ -585,7 +598,11 @@ export class HandpanRenderer {
       this.pitch += (this.targetPitch - this.pitch) * 0.15; this.dirty = true;
     }
     if (!this.dirty && time > this.activeUntil) return false;
-    this.dirty = false; this.camera();
+    this.dirty = false; this.camera(); this.updatePositions();
+    for (let i = 0; i < 12; i++) {
+      const position = this.positions[this.hits[i * 4] - 1];
+      this.hiddenHits[i] = position && !position.visible ? 1 : 0;
+    }
     const gl = this.gl, u = this.uniforms;
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.program);
@@ -611,9 +628,9 @@ export class HandpanRenderer {
     gl.uniform4fv(u['uHits[0]'], this.hits);
     gl.uniform4fv(u['uStrikeFields[0]'], this.strikeFields);
     gl.uniform1fv(u['uStrikeAspect[0]'], this.strikeAspect);
+    gl.uniform1fv(u['uHiddenHits[0]'], this.hiddenHits);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.drawElements(gl.TRIANGLES, this.indexCount, this.largeIndices ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
-    this.updatePositions();
     return true;
   }
 }

@@ -32,6 +32,7 @@ class Elaia {
     this.advanced = false; this.editorTab = 'layout'; this.playTab = 'top'; this.tool = 'select'; this.selected = null;
     this.keyboard = false; this.history = []; this.future = []; this.pointers = new Map();
     this.playTimers = new Set(); this.playGeneration = 0; this.noteTimers = new Map(); this.demo = null;
+    this.fieldLabels = new Map();
     this.family = 'All'; this.library = []; this.storageAvailable = true;
     this.layout = createLayout();
     this.restore();
@@ -120,6 +121,7 @@ class Elaia {
     if (!this.renderer) return;
     const rect = $('stage').getBoundingClientRect();
     this.renderer.resize(rect.width, rect.height);
+    this.fieldLabels.forEach(entry => { entry.width = 0; });
   }
 
   get editing() { return this.advanced && this.editorTab === 'layout'; }
@@ -526,13 +528,45 @@ class Elaia {
       const side = this.renderer.eye[1] < 0 ? 'bottom' : 'top';
       if (side !== this.noteSide) this.setPlayTab(side, false);
     }
-    if (!this.renderer || (!this.editing && !this.keyboard)) { container.replaceChildren(); return; }
-    const labels = this.renderer.positions.filter(p => p.visible && p.x > 10 && p.x < this.renderer.width - 10 && p.y > 100 && p.y < this.renderer.height - 115);
-    container.replaceChildren(...labels.map(p => {
-      const label = make('span', 'field-label' + (p.field.id === this.selected ? ' selected' : ''), nameOf(p.field.midi));
-      label.style.left = `${p.x}px`; label.style.top = `${p.y}px`;
-      return label;
-    }));
+    if (!this.renderer || (!this.editing && !this.keyboard)) {
+      container.replaceChildren(); this.fieldLabels.clear(); return;
+    }
+    const stage = container.getBoundingClientRect(), { width, height } = this.renderer;
+    const obstacles = [...$('stage').querySelectorAll('.instrument-heading, .restore-original, .edit-banner, .view-controls, .stage-hint, .graphics-error')]
+      .filter(el => el.getClientRects().length).map(el => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left - stage.left, right: r.right - stage.left, top: r.top - stage.top, bottom: r.bottom - stage.top };
+      });
+    const ids = new Set(this.renderer.positions.map(p => p.field.id));
+    for (const [id, entry] of this.fieldLabels) {
+      if (!ids.has(id)) { entry.label.remove(); this.fieldLabels.delete(id); }
+    }
+    // Reuse nodes and read their sizes together before writing positions.
+    const labels = this.renderer.positions.map(p => {
+      const text = p.field.midi === null ? '—' : nameOf(p.field.midi);
+      let entry = this.fieldLabels.get(p.field.id);
+      if (!entry) {
+        entry = { label: make('span', 'field-label', text) };
+        entry.label.dataset.id = p.field.id;
+        container.append(entry.label); this.fieldLabels.set(p.field.id, entry);
+      } else if (entry.label.textContent !== text) {
+        entry.label.textContent = text; entry.width = 0;
+      }
+      return { p, entry };
+    });
+    labels.forEach(({ entry }) => { if (!entry.width) entry.label.hidden = false; });
+    labels.forEach(({ entry }) => {
+      if (!entry.width) { entry.width = entry.label.offsetWidth; entry.height = entry.label.offsetHeight; }
+    });
+    for (const { p, entry: { label, width: w, height: h } } of labels) {
+      const x = Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, p.x));
+      const y = Math.max(h / 2 + 4, Math.min(height - h / 2 - 4, p.y));
+      const rect = { left: x - w / 2, right: x + w / 2, top: y - h / 2, bottom: y + h / 2 };
+      label.hidden = !p.visible || p.x < 0 || p.x > width || p.y < 0 || p.y > height
+        || obstacles.some(o => rect.left < o.right + 4 && rect.right > o.left - 4 && rect.top < o.bottom + 4 && rect.bottom > o.top - 4);
+      label.classList.toggle('selected', p.field.id === this.selected);
+      label.style.left = `${x}px`; label.style.top = `${y}px`;
+    }
   }
 
   bindPointers() {

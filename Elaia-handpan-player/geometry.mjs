@@ -45,6 +45,7 @@ export function fieldShape(field, layout) {
 }
 
 export function portRadius(layout) {
-  // Older custom documents keep their original opening and positions.
-  return layout.fields.some(f => f.geometry) ? shellGeometry(layout.arrangement).port : 0.18;
+  // Use a compact gu mouth; the wider published profile joins its collar.
+  // At a 530 mm shell diameter, this gives a 95.4 mm opening.
+  return layout.fields.some(f => f.geometry) ? Math.min(shellGeometry(layout.arrangement).port, 0.18) : 0.18;
 }

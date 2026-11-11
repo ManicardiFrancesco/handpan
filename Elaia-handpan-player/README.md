@@ -46,6 +46,9 @@ included in the published site; other instruments retain their existing tuning.
 - Each chord offers its available root octaves. For example, D Aegean 18
   offers B minor at B2, B3, and B4. Actual notes appear after playing;
   a high root with lower accompaniment is labeled with its inversion.
+- A note struck on the hidden shell produces a soft blue pulse through the
+  visible steel. It follows camera rotation and fades with the strike; damping
+  clears it. Visible fields retain their warm strike highlight.
 - Listen → Top notes, Bottom notes, or All notes plays every chosen field
   from lowest to highest, one note every 600 ms. Stop, tapping the active
   demo again, manual playing, or entering Customize ends the sequence.
@@ -148,8 +151,10 @@ model definitions:
 
 The 265 fields retain pitches, shell membership, centres, outer/inner contours,
 axes, type/drawn metadata, field planes and frames, convex tier radii/heights,
-and concave dimple radii/depths. Source shell profiles also determine the body
-and sound-port dimensions. D Aegean 18 has convex D3/F♯3 on top and B2/E3/G♯3
+and concave dimple radii/depths. Source shell profiles determine the body.
+Elaia narrows the gu mouth to 18% of the shell radius (a 95.4 mm opening on a
+530 mm body), with a rounded collar joining the original underside profile.
+D Aegean 18 has convex D3/F♯3 on top and B2/E3/G♯3
 underneath; the renderer does not assume that only the central ding is convex.
 
 Geometry is normalized by the source rim radius. Source `[X,Y,Z]` becomes

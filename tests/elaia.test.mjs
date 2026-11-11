@@ -5,7 +5,7 @@ import {
   transposeLayout, fits, audioLayout, encodeLayout, decodeLayout, clone,
   automaticField, arrangementInfo, restoreCurrent, titleFor,
 } from '../Elaia-handpan-player/model.mjs';
-import { fieldGeometry, shellGeometry } from '../Elaia-handpan-player/geometry.mjs';
+import { fieldGeometry, shellGeometry, portRadius } from '../Elaia-handpan-player/geometry.mjs';
 import { HandpanSurface } from '../Elaia-handpan-player/surface.mjs';
 import { sampleFor } from '../Elaia-handpan-player/sample-player.mjs';
 import { findChords } from '../src/theory/chords.js';
@@ -157,8 +157,27 @@ check(aegean.fields.filter(f => f.shape === 'dome' && f.side === 'top').map(f =>
 check(aegean.fields.filter(f => f.shape === 'dome' && f.side === 'bottom').map(f => f.midi).join(',') === '47,52,56', 'B2, E3 and G#3 are convex fields on the bottom shell');
 check(aegean.fields.find(f => f.midi === 78).shape === 'pure', 'The small F#5 field preserves its published pure type');
 check(fieldGeometry(lowestRing.geometry).tier1.Ru === 38.75 && fieldGeometry(lowestRing.geometry).h1 === 6.25, 'Convex tier radii and heights come from the source');
-check(Math.abs(shellGeometry('d-aegean-18').port - 70.5 / 265) < 1e-6, 'The gu opening uses its real source radius');
+check(Math.abs(shellGeometry('d-aegean-18').port - 70.5 / 265) < 1e-6, 'The original underside profile retains its measured inner edge');
 const sourceSurface = new HandpanSurface(aegean);
+check(sourceSurface.port === 0.18 && portRadius(aegean) === sourceSurface.port, 'The compact gu mouth agrees with the editor collision boundary');
+check(Number.isFinite(sourceSurface.base(sourceSurface.port, 0, 'bottom')[0])
+  && sourceSurface.base(sourceSurface.port, 0, 'bottom')[0] > sourceSurface.base(shellGeometry(aegean.arrangement).port, 0, 'bottom')[0],
+  'The smaller opening has an inward rolled collar instead of a flat cutoff');
+for (const preset of PRESETS) {
+  const layout = createLayout(preset), surface = new HandpanSurface(layout);
+  check(surface.port === 0.18 && surface.port < shellGeometry(layout.arrangement).port, `${preset.name} has a compact opening inside its original shell profile`);
+  for (const r of [0.18, 0.2, 0.24, 0.28, 0.32]) {
+    check(surface.sample(r, 0, 'bottom').every(Number.isFinite), `${preset.name} collar samples stay finite`);
+  }
+  for (const field of layout.fields) {
+    const normal = surface.sample(field.x, field.z, field.side).slice(3, 6);
+    for (const [dx, dz] of [[1e-7, 0], [-1e-7, 0], [0, 1e-7], [0, -1e-7]]) {
+      const nearby = surface.sample(field.x + dx, field.z + dz, field.side).slice(3, 6);
+      check(normal.reduce((sum, v, i) => sum + v * nearby[i], 0) > 0.999,
+        `${preset.name} ${field.id} keeps a continuous surface normal across its exact centre`);
+    }
+  }
+}
 check(Math.abs(sourceSurface.base(0, 0, 'top')[0] - (278.467674457 - 137.63585) / 265) < 0.00001, 'Shell height uses the measured profile');
 const convex = sourceSurface.fields.find(f => f.midi === 54 && f.side === 'top');
 const convexPoint = sourceSurface.sample(convex.O[0], convex.O[2], 'top');
