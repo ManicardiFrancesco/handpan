@@ -125,8 +125,9 @@ function check(value, message) { assert.ok(value, message); count++; }
     await page.waitForTimeout(800);
     check((await played()).length === stopped && await page.evaluate(() => __elaia.playTimers.size === 0), 'Stop cancels every remaining demo strike');
     await resetPlayed(); await page.click('[data-demo="top"]'); await waitPlayed(1);
-    await page.click('[data-demo="bottom"]'); await waitPlayed(2);
-    check((await played())[1].midi === 47 && await page.evaluate(() => __elaia.demo?.side === 'bottom'), 'Switching demos starts the new shell at its lowest note');
+    await page.click('[data-demo="bottom"]');
+    await page.waitForFunction(() => playedFields.some(f => f.side === 'bottom'));
+    check((await played()).find(f => f.side === 'bottom').midi === 47 && await page.evaluate(() => __elaia.demo?.side === 'bottom'), 'Switching demos starts the new shell at its lowest note');
     await page.click('[data-demo="bottom"]');
     check(await page.evaluate(() => !__elaia.demo && !__elaia.playTimers.size), 'Tapping the active demo also stops it');
     await resetPlayed(); await page.click('[data-demo="all"]'); await waitPlayed(1);
@@ -251,7 +252,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     check((await layout()).fields.length === 19, 'Adding through the gu sound port is prevented');
     await clickWorld(added.x, added.z, 'bottom');
     check((await layout()).fields.length === 19, 'Adding over an occupied tone field is prevented');
-    const drag = await page.evaluate(async id => {
+    const dragPoints = id => page.evaluate(async id => {
       const r = __elaia.renderer, rect = r.canvas.getBoundingClientRect();
       const start = r.positions.find(p => p.field.id === id);
       const { fits } = await import(new URL('model.mjs', location.href).href);
@@ -260,7 +261,8 @@ function check(value, message) { assert.ok(value, message); count++; }
       const [x, z] = slots.find(([x, z]) => Math.hypot(x - field.x, z - field.z) > 0.2 && fits(__elaia.layout, field, x, z));
       const end = r.project([x, r.heightAt(x, z, 'bottom'), z]);
       return { sx: start.x + rect.x, sy: start.y + rect.y, ex: end.x + rect.x, ey: end.y + rect.y };
-    }, added.id);
+    }, id);
+    const drag = await dragPoints(added.id);
     await page.evaluate(() => {
       const r = __elaia.renderer;
       window.dragBaseline = { vertices: r.vertexCount, size: r.normalSize, texture: r.normalTexture,
@@ -303,6 +305,46 @@ function check(value, message) { assert.ok(value, message); count++; }
     const restored = (await layout()).fields.find(f => f.id === added.id);
     check(Math.abs(restored.x - added.x) < 1e-8 && Math.abs(restored.z - added.z) < 1e-8, 'A drag is undone as one gesture');
     check(!(await layout()).manualPlacement, 'Undo also restores automatic placement after a manual drag');
+    await page.click('[data-view="bottom"]'); await waitView();
+    const cancelBaseline = await page.evaluate(() => ({
+      layout: JSON.stringify(__elaia.layout), history: __elaia.history.length,
+      future: JSON.stringify(__elaia.future), saved: localStorage.getItem('elaia.current.v1'),
+    }));
+    await page.waitForFunction(id => {
+      const p = __elaia.renderer.positions.find(p => p.field.id === id);
+      return p?.visible && p.field === __elaia.layout.fields.find(f => f.id === id)
+        && __elaia.renderer.pick(p.x, p.y)?.field.id === id;
+    }, added.id);
+    const cancelledDrag = await dragPoints(added.id);
+    await page.mouse.move(cancelledDrag.sx, cancelledDrag.sy); await page.mouse.down();
+    await page.mouse.move(cancelledDrag.ex, cancelledDrag.ey, { steps: 5 });
+    check(await page.evaluate(before => JSON.stringify(__elaia.layout) !== before.layout, cancelBaseline), 'A cancellable drag previews a changed layout');
+    await page.evaluate(() => {
+      const pointerId = __elaia.pointers.keys().next().value;
+      document.getElementById('instrument').dispatchEvent(new PointerEvent('pointercancel', { pointerId }));
+    });
+    await page.mouse.up();
+    check(await page.evaluate(before =>
+      JSON.stringify(__elaia.layout) === before.layout
+      && JSON.stringify(__elaia.audio.layout) === before.layout
+      && JSON.stringify(__elaia.audio.samples.layout) === before.layout
+      && __elaia.audio.engine.inst.notes.every(n =>
+        Math.abs(n.pan - __elaia.layout.fields.find(f => __elaia.audio.indices.get(f.id) === n.ni).x * 0.7) < 1e-8),
+    cancelBaseline), 'Cancelling a drag restores the visual layout, sample positions, and modeled audio pans');
+    check(await page.evaluate(before => __elaia.history.length === before.history
+      && JSON.stringify(__elaia.future) === before.future && localStorage.getItem('elaia.current.v1') === before.saved,
+    cancelBaseline), 'Cancelling a drag preserves undo, redo, and saved state');
+    await page.evaluate(() => {
+      const input = document.getElementById('field-size');
+      for (let i = 0; i < 2; i++) { input.stepDown(); input.dispatchEvent(new Event('input')); }
+      input.dispatchEvent(new Event('change'));
+    });
+    check(await page.evaluate(before => __elaia.history.length === before.history + 1
+      && __elaia.future.length === 0 && __elaia.layout.manualPlacement
+      && localStorage.getItem('elaia.current.v1') === JSON.stringify(__elaia.layout),
+    cancelBaseline), 'A multi-step size gesture creates one undo entry, clears redo, and saves the final layout');
+    await page.click('#undo-btn');
+    check(JSON.stringify(await layout()) === cancelBaseline.layout, 'Undo restores the entire layout before a size gesture');
     await page.click(`.note-chip[data-id="${added.id}"]`);
     await page.selectOption('#field-note', '64');
     check(await page.evaluate(id => {
@@ -379,7 +421,6 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(await page.evaluate(() => __elaia.renderer.positions.filter(p => p.visible).length === 7 && __elaia.renderer.positions.filter(p => p.visible).every(p => __elaia.renderer.pick(p.x, p.y)?.field.id === p.field.id)), 'Every published D Aegean bottom centre is playable');
     await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-aegean-bottom.png'), fullPage: true });
     await page.click('#scale-btn'); await page.fill('#scale-search', 'D Kurd 13');
-    await page.click('[data-family="All"]');
     await page.locator('.scale-option').first().click();
     await page.click('#keyboard-btn');
     check(await page.locator('.note-chip kbd').count() === 13, 'Keyboard mapping is visible');

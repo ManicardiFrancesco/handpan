@@ -33,14 +33,13 @@ class Elaia {
     this.keyboard = false; this.history = []; this.future = []; this.pointers = new Map();
     this.playTimers = new Set(); this.playGeneration = 0; this.noteTimers = new Map(); this.demo = null;
     this.fieldLabels = new Map();
-    this.family = 'All'; this.library = []; this.storageAvailable = true;
+    this.library = []; this.storageAvailable = true;
     this.layout = createLayout();
     this.restore();
     try {
       this.renderer = new HandpanRenderer($('instrument'));
-    } catch (error) {
+    } catch {
       $('graphics-error').hidden = false;
-      this.graphicsError = error.message;
     }
     this.fillNoteSelect($('field-note'));
     this.fillNoteSelect($('add-note'));
@@ -80,7 +79,7 @@ class Elaia {
     } catch { this.storageAvailable = false; }
     const code = new URLSearchParams(location.hash.slice(1)).get('layout');
     if (code) {
-      try { this.layout = decodeLayout(code); this.fromShare = true; }
+      try { this.layout = decodeLayout(code); }
       catch (error) { this.restoreError = error.message; }
     }
   }
@@ -132,11 +131,11 @@ class Elaia {
     this.future = [];
   }
 
-  commit(next, { geometry = true, audio = true, custom = true } = {}) {
+  commit(next, { geometry = true, audio = true, custom = true, before = this.layout } = {}) {
     try {
       next = validateLayout(next);
-      if (JSON.stringify(next) === JSON.stringify(this.layout)) return;
-      this.remember();
+      if (JSON.stringify(next) === JSON.stringify(before)) return;
+      this.remember(before);
       this.layout = next;
       if (custom) this.layout.custom = true;
       this.cancelStrum();
@@ -638,9 +637,9 @@ class Elaia {
       }
       if (item.baseline && JSON.stringify(item.baseline) !== JSON.stringify(this.layout)) {
         if (cancelled) {
-          this.layout = item.baseline; this.rebuild({ audio: false });
+          this.layout = item.baseline; this.audio.setPans(this.layout); this.rebuild({ audio: false });
         } else {
-          this.remember(item.baseline); this.persist(); this.renderInfo(); this.renderHistory();
+          this.commit(this.layout, { before: item.baseline, geometry: false, audio: false });
         }
       }
       if (!cancelled && item.pick && this.editing && !item.orbitOnly) {
@@ -698,8 +697,8 @@ class Elaia {
 
   renderScales() {
     const query = $('scale-search').value.trim().toLowerCase().replaceAll('♯', '#');
-    const matching = PRESETS.filter(p => (this.family === 'All' || p.family === this.family)
-      && `${p.name} ${p.title} ${p.iv.length} ${p.note}`.toLowerCase().replaceAll('♯', '#').includes(query));
+    const matching = PRESETS.filter(p =>
+      `${p.name} ${p.title} ${p.iv.length} ${p.note}`.toLowerCase().replaceAll('♯', '#').includes(query));
     $('scale-list').replaceChildren();
     matching.forEach(p => {
       const button = make('button', 'scale-option' + (p.id === this.layout.preset && !this.layout.custom ? ' current' : ''));
@@ -773,9 +772,6 @@ class Elaia {
     }));
     $('scale-btn').onclick = () => { this.renderScales(); $('scale-dialog').showModal(); $('scale-search').focus(); };
     $('scale-search').oninput = () => this.renderScales();
-    document.querySelectorAll('[data-family]').forEach(b => { b.onclick = () => {
-      this.family = b.dataset.family; markActive('[data-family]', 'family', this.family); this.renderScales();
-    }; });
     $('advanced-btn').onclick = () => this.setAdvanced(!this.advanced);
     $('play-mode-btn').onclick = () => this.setAdvanced(false);
     for (const [selector, choose] of [
@@ -880,8 +876,8 @@ class Elaia {
         $(id + '-value').textContent = property === 'size' ? `${Math.round(value * 530)} × ${Math.round(value * 530 * (field.aspect ?? 0.82))} mm` : `${Math.round(value * 180 / Math.PI)}°`;
       };
       input.onchange = () => {
-        if (this.rangeBaseline && JSON.stringify(this.rangeBaseline) !== JSON.stringify(this.layout)) this.remember(this.rangeBaseline);
-        this.rangeBaseline = null; this.persist(); this.renderInfo(); this.renderHistory();
+        if (this.rangeBaseline) this.commit(this.layout, { before: this.rangeBaseline, geometry: false, audio: false });
+        this.rangeBaseline = null;
         if (this.renderer) this.renderer.interactive = false;
         this.requestMesh();
       };

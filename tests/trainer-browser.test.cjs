@@ -191,6 +191,7 @@ const assert = require('node:assert/strict');
     // Stopping the microphone ends the fake track, so hand out a fresh one.
     await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{
       const dest=window.testTone.ctx.createMediaStreamDestination();
+      window.testTone.dest=dest;
       window.testTone.osc.connect(dest);
       return dest.stream;
     }});
@@ -201,6 +202,16 @@ const assert = require('node:assert/strict');
     },40)});
     await page.locator('#microphone').click();
     await page.waitForFunction(()=>document.querySelector('#run-clock').classList.contains('running'),null,{timeout:15000});
+    await page.waitForFunction(()=>parseInt(document.querySelector('#run-progress').textContent)>0);
+    await page.evaluate(()=>testTone.osc.disconnect());
+    await page.waitForFunction(()=>document.querySelector('#pitch-space').dataset.state==='idle');
+    await page.selectOption('#difficulty','5');
+    assert.equal(await page.locator('#run-progress').textContent(),'0 / 9','Changing difficulty restarts the run');
+    assert.equal(await page.locator('#run-clock').textContent(),'0.0s','The restarted clock waits for a fresh sung note');
+    assert.equal(await page.locator('#run-clock').evaluate(el=>el.classList.contains('running')),false);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('handpanvoice.runs.v1')),null,'A partial run never becomes a record');
+    await page.selectOption('#difficulty','3');
+    await page.evaluate(()=>testTone.osc.connect(testTone.dest));
     await page.waitForFunction(()=>document.querySelector('#run-progress').textContent==='9 / 9',null,{timeout:60000});
     await page.waitForFunction(()=>!document.querySelector('#run-clock').classList.contains('running'),null,{timeout:5000});
     const finalTime = await page.locator('#run-clock').textContent();

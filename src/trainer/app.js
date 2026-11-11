@@ -32,19 +32,7 @@ const holdTarget = () => lane ? lane.hold : holdFor(level, $('mode').value);
 const speedrun = () => $('mode').value === 'speedrun';
 const arpeggio = () => $('mode').value === 'arpeggio';
 const pitchTrail = new PitchTrail($('pitch-space'));
-$('pitch-space').append($('microphone'));
-const holdRing = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-holdRing.id = 'hold-ring'; holdRing.setAttribute('viewBox', '0 0 48 48');
-holdRing.setAttribute('role', 'progressbar'); holdRing.setAttribute('aria-label', 'Hold in tune');
-holdRing.setAttribute('aria-valuemin', '0');
-holdRing.innerHTML = '<circle class="hold-ring-track" cx="24" cy="24" r="20"/><circle id="hold-ring-fill" cx="24" cy="24" r="20" pathLength="100"/>';
-$('pitch-marker').append(holdRing);
-document.querySelector('.hold-track').remove();
-// The drift band: between the in-tune zone and here, progress eases back instead
-// of resetting. Outside it you are singing a different note.
-const driftBand = document.createElement('div');
-driftBand.className = 'drift-zone';
-document.querySelector('.zone').before(driftBand);
+const holdRing = $('hold-ring'), driftBand = $('drift-zone');
 // What each zone is doing to the bank, and what to call the zone itself.
 const ZONE_COPY = {
   good: ['filling', 'in tune'],
@@ -128,9 +116,12 @@ function setLevel(next, flash = true) {
   struggle.quiet(performance.now());
   if (wanted === level) { renderDifficulty(flash); return; }
   level = wanted; writeNumber(LEVEL_KEY, level);
-  advanceAt = 0; clearPitch(true, active);
-  // A lane round bakes in the tolerance and tempo, so it is rebuilt at the new level.
-  if (arpeggio()) startRound(performance.now(), false);
+  if (speedrun()) reset();
+  else {
+    advanceAt = 0; clearPitch(true, active);
+    // A lane round bakes in the tolerance and tempo, so it is rebuilt at the new level.
+    if (arpeggio()) startRound(performance.now(), false);
+  }
   renderDifficulty(flash); renderProgress(); renderRun();
 }
 function hideSuggestion() { suggested = null; suggestionUntil = 0; $('suggestion').hidden = true; }
@@ -144,7 +135,7 @@ function showSuggestion(kind, now) {
   $('suggestion-yes').textContent = kind === 'easier' ? `Make it easier (${LEVELS[level - 1].name})` : `Make it harder (${LEVELS[level + 1].name})`;
 }
 // Speedrun: the clock starts on your first sung note and stops on the last note found.
-function armRun() { run = speedrun() ? { startedAt: null, splits: [], done: false, ms: 0 } : null; }
+function armRun() { run = speedrun() ? { key: currentRunKey(), startedAt: null, done: false, ms: 0 } : null; }
 function currentRunKey() { return runKey(scales[+$('scale').value].name, +$('octave').value, level); }
 function renderRun(now = performance.now()) {
   $('run-bar').hidden = !speedrun();
@@ -156,8 +147,7 @@ function renderRun(now = performance.now()) {
   const best = records.best(currentRunKey());
   $('run-best').textContent = best ? formatDuration(best.ms) : '—';
 }
-function splitRun(now) {
-  run.splits.push(now - run.startedAt);
+function advanceRun(now) {
   const total = notes().length;
   if (completed.size < total) {
     advanceAt = now + 220;
@@ -165,7 +155,7 @@ function splitRun(now) {
     return;
   }
   run.ms = now - run.startedAt; run.done = true; advanceAt = 0;
-  const outcome = records.submit(currentRunKey(), run.ms);
+  const outcome = records.submit(run.key, run.ms);
   renderProgress();
   feedback(outcome.improved ? `New best · ${formatDuration(run.ms)}!` : `Full scale in ${formatDuration(run.ms)}.`,
     outcome.previous === null ? 'That is your time to beat. Reset to run it again.'
@@ -388,7 +378,7 @@ function noteFound(now) {
   }
   struggle.finish({ completed: true, durationMs: stats ? stats.voicedMs : 0, rms: stats ? stats.rms : null });
   render();
-  if (running()) { splitRun(now); return; }
+  if (running()) { advanceRun(now); return; }
   feedback(completed.size === notes().length ? 'Beautiful. Scale complete!' : 'Note found. Nicely done.',
     $('mode').value === 'guided' ? 'Take a breath. The next note is on its way.' : 'Keep exploring this note, or choose another.');
   if ($('mode').value === 'guided') advanceAt = now + 1100;

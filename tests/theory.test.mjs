@@ -103,9 +103,10 @@ for(const sc of SCALES){
   const nBottom=sc.bottomFrom!==undefined?sc.iv.length-sc.bottomFrom:0;
   ok(Array.isArray(c),sc.name+" returns chords");
   ok(sc.iv[0]===0,sc.name+" ding is offset 0");
-  ok(sc.iv.every(v=>v>=0),sc.name+" no negative offsets");
-  // ding must be the lowest note
-  ok(Math.min(...sc.iv)===0,sc.name+" ding is lowest");
+  const top=sc.iv.slice(0,sc.bottomFrom??sc.iv.length);
+  ok(top.every(v=>v>=0),sc.name+" no negative top offsets");
+  // Bottom fields can be lower than the top shell's ding.
+  ok(Math.min(...top)===0,sc.name+" ding is lowest on top");
   console.log("  "+sc.name.padEnd(30),"n="+String(sc.iv.length).padStart(2),
     "bottom="+String(nBottom).padStart(2),"chords="+String(c.length).padStart(4),
     "mode="+ds.name);

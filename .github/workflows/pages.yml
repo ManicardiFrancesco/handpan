@@ -1,7 +1,9 @@
-name: Deploy GitHub Pages
+name: Test and deploy GitHub Pages
 
 on:
   push:
+    branches: [master]
+  pull_request:
     branches: [master]
   workflow_dispatch:
 
@@ -9,11 +11,43 @@ permissions:
   contents: read
 
 concurrency:
-  group: github-pages
+  group: github-pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Unit tests
+        run: |
+          for test in tests/*.test.mjs tests/*.test.cjs; do
+            case "$test" in *browser.test.cjs) continue ;; esac
+            node "$test"
+          done
+      - name: Install test browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/handpan-tests" --no-save playwright@1.65.0
+          "$RUNNER_TEMP/handpan-tests/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Browser tests
+        env:
+          PW: ${{ runner.temp }}/handpan-tests/node_modules/playwright
+        run: |
+          python3 -m http.server 8080 --bind 127.0.0.1 > "$RUNNER_TEMP/handpan-server.log" 2>&1 &
+          site_pid=$!
+          trap 'kill "$site_pid"' EXIT
+          curl --retry 5 --retry-connrefused --retry-delay 1 --silent --fail http://127.0.0.1:8080 > /dev/null
+          for test in tests/*browser.test.cjs; do
+            # Recorded playback needs an external MP3 fixture.
+            case "$test" in tests/elaia-samples-browser.test.cjs) continue ;; esac
+            node "$test" http://127.0.0.1:8080
+          done
   deploy:
+    needs: test
     # Manual runs from other branches must not replace the published site.
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
