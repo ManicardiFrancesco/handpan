@@ -46,10 +46,10 @@ included in the published site; other instruments retain their existing tuning.
 - Each chord offers its available root octaves. For example, D Aegean 18
   offers B minor at B2, B3, and B4. Actual notes appear after playing;
   a high root with lower accompaniment is labeled with its inversion.
-- A note struck on the hidden shell produces a soft blue pulse through the
-  visible steel at that field's actual camera projection, including its depth
-  and projected shape. It follows camera rotation and zoom and fades with the
-  strike; damping clears it. Visible fields retain their warm strike highlight.
+- Played fields glow warm yellow where visible, while their hidden portions
+  produce a soft blue pulse through the nearer steel. Both appear together
+  for partly visible notes, including when the field's own curved shell hides
+  part of it. The glow follows rotation and zoom; damping clears both colors.
 - Listen → Top notes, Bottom notes, or All notes plays every chosen field
   from lowest to highest, one note every 600 ms. Stop, tapping the active
   demo again, manual playing, or entering Customize ends the sequence.
