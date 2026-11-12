@@ -35,6 +35,14 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     check(await page.evaluate(() => __elaia.advanced) && await page.locator('#advanced-btn').getAttribute('aria-pressed') === 'true', 'Customize toggles on');
     await page.click('#advanced-btn');
     check(await page.evaluate(() => !__elaia.advanced), 'The same Customize button toggles off');
+    check(await page.evaluate(() => {
+      const r = __elaia.renderer;
+      r.orbit(20, 10); r.setView('bottom');
+      const bottom = r.pitch === -Math.PI / 2 && r.eye[1] < 0;
+      r.setView('top');
+      return bottom && r.pitch === Math.PI / 2 && r.eye[1] > 0
+        && r.positions.filter(p => p.visible).every(p => r.pick(p.x, p.y)?.field.id === p.field.id);
+    }), 'Zenith switches update camera and picking immediately, independent of frame rate');
     await zenith(page, 'bottom'); await zenith(page, 'top');
     const before = await page.evaluate(() => JSON.parse(JSON.stringify(__elaia.layout)));
     await page.click('#sound-btn'); await page.waitForFunction(() => __elaia.audio.started);

@@ -451,7 +451,7 @@ kbd { font:10px var(--sans); color:#d5d6dc; background:#393b42; padding:1px 4px;
 }
 @media (max-height:650px) and (max-width:700px) and (orientation:portrait) {
   :root { --editor-height:clamp(180px,34dvh,230px) }
-  body.advanced.adding-note .editor-tabs { display:none }
+  body.advanced.adding-note .editor-tabs,body.advanced.inspector-open .editor-tabs { display:none }
 }
 @media (max-height:600px) and (max-width:700px) and (orientation:landscape) {
   :root { --editor-height:0px; --header-height:56px }

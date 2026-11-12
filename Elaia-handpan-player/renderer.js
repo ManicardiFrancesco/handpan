@@ -501,6 +501,10 @@ export class HandpanRenderer {
     if (view === 'top') this.targetPitch = Math.PI / 2;
     if (view === 'bottom') this.targetPitch = -Math.PI / 2;
     if (view === 'free') this.targetPitch = this.pitch;
+    if (view !== 'free') {
+      this.pitch = this.targetPitch;
+      if (this.layout) { this.camera(); this.updatePositions(); }
+    }
     this.dirty = true;
   }
 
