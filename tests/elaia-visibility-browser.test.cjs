@@ -177,7 +177,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       && [...document.querySelectorAll('.field-label:not([hidden])')].filter(el => parseFloat(el.style.top) < 100).length >= 2),
     'Zoomed upper fields retain labels inside the formerly excluded 100px band');
     check(await labelsClear(page), 'Desktop labels fit the viewport and avoid actual controls');
-    await page.screenshot({ path: path.join(SHOTS, 'after-labels-desktop.png') });
+    await page.screenshot({ path: path.join(SHOTS, 'after-labels-desktop.png'), timeout: 90_000 });
     await page.evaluate(() => { window.dingLabel = document.querySelector('.field-label[data-id="n0"]'); });
     await page.locator('#instrument').hover({ position: { x: 480, y: 330 } });
     await page.mouse.wheel(0, 170);
@@ -208,7 +208,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       return r.surfaceModel.port === 0.18 && r.surfacePoint(collar.x, collar.y)?.side === 'bottom'
         && r.pick(start.x, start.y) === null && r.gl.getError() === 0;
     }), 'The compact opening renders a real steel collar and remains separate from tone fields');
-    await page.screenshot({ path: path.join(SHOTS, 'after-bottom-desktop.png') });
+    await page.screenshot({ path: path.join(SHOTS, 'after-bottom-desktop.png'), timeout: 90_000 });
     for (const side of ['bottom', 'top']) {
       for (const [pitch, yaw, zoom] of [[0.85, 0.4, 1.15], [1.12, -0.75, 0.8], [1.32, 1.2, 1.4]]) {
         const camera = { side, pitch: pitch * (side === 'bottom' ? 1 : -1), yaw, zoom };
@@ -254,7 +254,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       return r.hits.some((v, i) => i % 4 === 0 && v === index + 1);
     }, chord.hidden);
     check(await chordAligned(page, chord.hidden), 'Pressing an actual chord button projects its hidden bottom voice at the correct note');
-    await page.screenshot({ path: path.join(SHOTS, 'after-hidden-note-desktop.png') });
+    await page.screenshot({ path: path.join(SHOTS, 'after-hidden-note-desktop.png'), timeout: 90_000 });
     await page.click('#damp-btn');
     check(await page.evaluate(() => __elaia.renderer.hits.every((v, i) => i % 4 !== 0 || v === -1)), 'Damping removes both visible and hidden strike feedback');
     await context.close();
@@ -280,7 +280,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       await mobile.waitForFunction(() => document.querySelectorAll('.field-label:not([hidden])').length >= 6);
       check(await labelsClear(mobile), `${width}px mobile labels use available space without covering controls`);
       check(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth && __elaia.renderer.gl.getError() === 0), 'Phone layouts stay bounded with no GL errors');
-      await mobile.screenshot({ path: path.join(SHOTS, `after-labels-${width}px.png`) });
+      await mobile.screenshot({ path: path.join(SHOTS, `after-labels-${width}px.png`), timeout: 90_000 });
     }
     await mobile.setViewportSize({ width: 390, height: 844 });
     await mobile.locator('#advanced-btn').tap();
@@ -302,7 +302,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     }, mobileChord.hidden);
     check(await mobile.evaluate(() => __elaia.audio.started && __elaia.renderer.gl.getError() === 0), 'Touching a chord on a phone starts audio and its hidden-shell pulse');
     check(await chordAligned(mobile, mobileChord.hidden), 'The phone chord pulse uses the hidden note projection after resizing and zooming');
-    await mobile.screenshot({ path: path.join(SHOTS, 'after-hidden-note-390px.png') });
+    await mobile.screenshot({ path: path.join(SHOTS, 'after-hidden-note-390px.png'), timeout: 90_000 });
     await mobileContext.close();
     check(errors.length === 0, 'No browser exceptions');
     console.log(`Elaia visibility: ${count} checks passed — zoom labels, compact gu collar, pixel-accurate hidden-note positions, chord feedback, and phone layouts.`);

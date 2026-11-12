@@ -51,7 +51,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(!boot.started, 'Audio respects browser gesture requirements');
     check(!boot.overflow && boot.picks && boot.glError === 0, 'No overflow; every top field picks itself; no GL errors');
     check(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1 && getComputedStyle(document.getElementById('side-panel')).overflowY === 'auto'), 'Desktop chord arpeggios scroll inside the panel while the instrument and dock stay in one viewport');
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true, timeout: 90_000 });
     await page.click('#scale-btn');
     check(await page.locator('.scale-option').count() === 15 && await page.locator('.scale-option').filter({ hasText: 'D Aegean 18' }).count() === 1, 'The library exposes only fifteen Ayasa models and one D Aegean 18');
     await page.click('#scale-dialog .close-dialog');
@@ -283,7 +283,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     });
     check(dragQuality.mapped && dragQuality.sameMesh && dragQuality.sameTexture, 'Dragging retains the full mesh and crisp normal map');
     check(dragQuality.untouched && dragQuality.local, 'Dragging a bottom field preserves the entire top-shell detail and updates only local regions');
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-dragging.png') });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-dragging.png'), timeout: 90_000 });
     console.log(`Local drag update: ${dragQuality.milliseconds.toFixed(1)} ms.`);
     await page.mouse.up();
     await page.waitForTimeout(100);
@@ -407,17 +407,17 @@ function check(value, message) { assert.ok(value, message); count++; }
     if (await page.evaluate(() => __elaia.advanced)) await page.click('#advanced-btn');
     await page.click('[data-view="top"]'); await waitView();
     await page.click('[data-finish="ember"]');
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-21-notes.png'), fullPage: true });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-21-notes.png'), fullPage: true, timeout: 90_000 });
     await page.click('#scale-btn'); await page.fill('#scale-search', 'D Aegean 18');
     await page.locator('.scale-option').click();
     const aegean = await layout();
     check(aegean.arrangement === 'd-aegean-18' && aegean.fields.filter(f => f.side === 'top').length === 11 && aegean.fields.filter(f => f.side === 'bottom').length === 7, 'Ayasa category loads the published D Aegean 18');
     await page.waitForFunction(() => __elaia.renderer.positions.length === 18);
     check(await page.evaluate(() => __elaia.renderer.positions.filter(p => p.visible).every(p => __elaia.renderer.pick(p.x, p.y)?.field.id === p.field.id)), 'Every published D Aegean top centre is playable');
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-aegean.png'), fullPage: true });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-aegean.png'), fullPage: true, timeout: 90_000 });
     await page.click('[data-view="bottom"]'); await waitView();
     check(await page.evaluate(() => __elaia.renderer.positions.filter(p => p.visible).length === 7 && __elaia.renderer.positions.filter(p => p.visible).every(p => __elaia.renderer.pick(p.x, p.y)?.field.id === p.field.id)), 'Every published D Aegean bottom centre is playable');
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-aegean-bottom.png'), fullPage: true });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-aegean-bottom.png'), fullPage: true, timeout: 90_000 });
     await page.click('#scale-btn'); await page.fill('#scale-search', 'D Kurd 13');
     await page.locator('.scale-option').first().click();
     await page.click('#keyboard-btn');
@@ -438,7 +438,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     await page.click('#keyboard-btn');
     await page.click('#scale-btn'); await page.fill('#scale-search', 'D Aegean 18'); await page.locator('.scale-option').click();
     await page.click('[data-view="top"]'); await waitView();
-    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true, timeout: 90_000 });
 
     const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     await mobileContext.route('**/smp-*.mp3*', failedRecording);
@@ -493,7 +493,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     check(await mobile.evaluate(zoom => Math.abs(__elaia.renderer.zoom - zoom) > 0.01, pinchBefore), 'Real two-finger input zooms the handpan');
     await mobile.click('#reset-view'); await mobile.waitForFunction(() => __elaia.renderer.zoom === 1);
-    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile.png'), fullPage: true });
+    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile.png'), fullPage: true, timeout: 90_000 });
     await mobile.click('#advanced-btn');
     check(await mobile.evaluate(() => __elaia.renderer.width >= innerWidth * 0.95), 'Advanced mode keeps the phone canvas at full width');
     await mobile.locator('.note-chip[data-id="n1"]').tap();
@@ -513,7 +513,7 @@ function check(value, message) { assert.ok(value, message); count++; }
       const r = el.getBoundingClientRect();
       return r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
     }), 'Phone field geometry is discoverable without covering the instrument');
-    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile-editor.png') });
+    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile-editor.png'), timeout: 90_000 });
     await mobile.click('#close-inspector');
     check(await mobile.locator('[data-tool="add"]').evaluate(el => {
       const r = el.getBoundingClientRect();
@@ -566,7 +566,7 @@ function check(value, message) { assert.ok(value, message); count++; }
       return document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1
         && stage.right <= panel.left && __elaia.renderer.width > 400;
     }), 'Landscape phones use a side inspector and a full-height stage');
-    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile-landscape.png') });
+    await mobile.screenshot({ path: path.join(ARTIFACTS, 'elaia-mobile-landscape.png'), timeout: 90_000 });
     await mobile.setViewportSize({ width: 320, height: 568 });
     check(await mobile.locator('#field-note').evaluate(el => {
       const r = el.getBoundingClientRect();

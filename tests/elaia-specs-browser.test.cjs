@@ -56,7 +56,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       const label = document.querySelector('#bottom-overlay text');
       return Math.hypot(+label.getAttribute('x') - p.x, +label.getAttribute('y') - p.y) < 1e-8;
     }), 'Bottom labels use the actual 3D underside projection');
-    await page.screenshot({ path: path.join(SHOTS, 'after-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(SHOTS, 'after-desktop.png'), fullPage: true, timeout: 90_000 });
     await page.click('#bottom-overlay-btn');
     check(await page.locator('#bottom-overlay').isHidden(), 'The bottom overlay toggles off');
     await page.click('#transpose-up');
@@ -103,7 +103,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       await phone.setViewportSize({ width, height });
       await zenith(phone, 'top');
       await phone.locator('#bottom-overlay-btn').tap();
-      await phone.screenshot({ path: path.join(SHOTS, `after-mobile-${width}.png`), fullPage: true });
+      await phone.screenshot({ path: path.join(SHOTS, `after-mobile-${width}.png`), fullPage: true, timeout: 90_000 });
       check(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth
         && [...document.querySelectorAll('.stage-tools button')].every(b => {
           const r = b.getBoundingClientRect();
@@ -121,7 +121,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     }
     await phone.setViewportSize({ width: 390, height: 844 });
     await phone.click('#advanced-btn'); await phone.click('[data-tool="add"]'); await phone.locator('#place-note-btn').tap();
-    await phone.screenshot({ path: path.join(SHOTS, 'after-customize-mobile.png'), fullPage: true });
+    await phone.screenshot({ path: path.join(SHOTS, 'after-customize-mobile.png'), fullPage: true, timeout: 90_000 });
     check(await phone.evaluate(() => __elaia.layout.fields.at(-1).shape === 'pure'), 'Phone additions apply the same geometry rules');
     await phoneContext.close();
     assert.deepEqual(errors, []); count++;

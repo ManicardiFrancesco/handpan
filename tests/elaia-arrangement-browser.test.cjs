@@ -1,4 +1,5 @@
 // Repeat additions, factory restoration, empty fields, and phone reachability.
+// Screenshot capture gets extra time for software WebGL on small CI runners.
 const { chromium } = require(process.env.PW || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -32,10 +33,10 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       check(await page.evaluate(({ total, midi }) => __elaia.layout.fields.length === total && __elaia.layout.fields.at(-1).midi === midi,
         { total: 19 + index, midi }), 'Repeated clicks add successive scale notes without choosing pitches');
       check(await page.locator('#add-settings').isVisible() && await page.locator('#restore-original').isVisible(), 'Repeat-add stays open and Original is immediately available');
-      if (index === 0) await page.screenshot({ path: path.join(SHOTS, 'elaia-add-pair-desktop.png') });
+      if (index === 0) await page.screenshot({ path: path.join(SHOTS, 'elaia-add-pair-desktop.png'), timeout: 90_000 });
     }
     check(await page.locator('#place-note-btn').isDisabled() && (await page.textContent('#add-feedback')).includes('five'), 'A full five-note cluster explains how to continue on the other shell or manually');
-    await page.screenshot({ path: path.join(SHOTS, 'elaia-add-five-desktop.png') });
+    await page.screenshot({ path: path.join(SHOTS, 'elaia-add-five-desktop.png'), timeout: 90_000 });
     await page.click('#undo-btn');
     check(await page.inputValue('#add-note') === '85' && await page.locator('#place-note-btn').isEnabled(), 'Undo removes one addition and restores the correct next pitch');
     await page.click('#redo-btn');
@@ -90,11 +91,15 @@ const check = (value, message) => { assert.ok(value, message); count++; };
         const r = el.getBoundingClientRect();
         return r.top >= 0 && r.bottom <= innerHeight && r.height >= 44 && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
       }), `${width}px phones keep the repeat-add action visible and touchable`);
+      check(await mobile.locator('#add-note, #add-side').evaluateAll(elements => elements.every(el => {
+        const r = el.getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= innerHeight && r.height >= 44 && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      })), `${width}px phones keep note and shell selectors clear of the pinned add action`);
       check(await mobile.evaluate(() => {
         const heading = document.querySelector('.instrument-heading').getBoundingClientRect(), reset = document.getElementById('restore-original').getBoundingClientRect();
         return document.documentElement.scrollWidth <= innerWidth && heading.right <= reset.left;
       }), `${width}px phones keep Original clear of the title without horizontal overflow`);
-      await mobile.screenshot({ path: path.join(SHOTS, `elaia-add-${width}px.png`) });
+      await mobile.screenshot({ path: path.join(SHOTS, `elaia-add-${width}px.png`), timeout: 90_000 });
     }
     await mobile.setViewportSize({ width: 390, height: 844 });
     await mobile.locator('#place-note-btn').tap();
@@ -105,7 +110,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     check(await mobile.evaluate(() => __elaia.layout.fields.length === 20), 'Phone Undo brings the customized instrument back');
     await mobile.setViewportSize({ width: 844, height: 390 }); await mobile.click('[data-tool="add"]');
     check(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1), 'Landscape adding remains inside the viewport');
-    await mobile.screenshot({ path: path.join(SHOTS, 'elaia-add-landscape.png') });
+    await mobile.screenshot({ path: path.join(SHOTS, 'elaia-add-landscape.png'), timeout: 90_000 });
     await mobileContext.close();
     assert.deepEqual(errors, []); count++;
     console.log(`Elaia arrangement: ${count} checks passed — repeated scale additions, default slots, undo/reset, unassigned audio, and mobile reachability.`);

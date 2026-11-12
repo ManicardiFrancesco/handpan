@@ -417,6 +417,7 @@ kbd { font:10px var(--sans); color:#d5d6dc; background:#393b42; padding:1px 4px;
   .field-details summary { min-height:42px }
   .danger-button { min-height:44px; margin-top:4px }
   .add-settings { padding-bottom:8px }
+  .add-actions { position:sticky; bottom:0; z-index:4; padding:4px 0; background:#202125 }
   .add-actions .primary-button { margin-top:0 }
   .add-settings p { margin-top:9px }
   .settings-group { margin-bottom:10px; padding-bottom:17px }
@@ -450,6 +451,7 @@ kbd { font:10px var(--sans); color:#d5d6dc; background:#393b42; padding:1px 4px;
 }
 @media (max-height:650px) and (max-width:700px) and (orientation:portrait) {
   :root { --editor-height:clamp(180px,34dvh,230px) }
+  body.advanced.adding-note .editor-tabs { display:none }
 }
 @media (max-height:600px) and (max-width:700px) and (orientation:landscape) {
   :root { --editor-height:0px; --header-height:56px }
