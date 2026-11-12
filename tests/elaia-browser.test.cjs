@@ -122,11 +122,14 @@ function check(value, message) { assert.ok(value, message); count++; }
     await page.click('#demo-stop'); const stopped = (await played()).length;
     await page.waitForTimeout(800);
     check((await played()).length === stopped && await page.evaluate(() => __elaia.playTimers.size === 0), 'Stop cancels every remaining demo strike');
+    const bottomDemo = await page.locator('[data-demo="bottom"]').boundingBox();
     await resetPlayed(); await page.click('[data-demo="top"]'); await waitPlayed(1);
     await page.click('[data-demo="bottom"]');
     await page.waitForFunction(() => playedFields.some(f => f.side === 'bottom'));
     check((await played()).find(f => f.side === 'bottom').midi === 47 && await page.evaluate(() => __elaia.demo?.side === 'bottom'), 'Switching demos starts the new shell at its lowest note');
-    await page.click('[data-demo="bottom"]');
+    // A normal locator click waits for compositing; the four-second demo can
+    // finish meanwhile on software WebGL. Send a real pointer click directly.
+    await page.mouse.click(bottomDemo.x + bottomDemo.width / 2, bottomDemo.y + bottomDemo.height / 2);
     check(await page.evaluate(() => !__elaia.demo && !__elaia.playTimers.size), 'Tapping the active demo also stops it');
     await resetPlayed(); await page.click('[data-demo="all"]'); await waitPlayed(1);
     await page.click('.note-chip[data-id="n0"]'); await waitPlayed(2);
