@@ -100,7 +100,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     });
     const resetPlayed = () => page.evaluate(() => { window.playedFields = []; });
     const played = () => page.evaluate(() => playedFields);
-    const waitPlayed = n => page.waitForFunction(n => playedFields.length >= n, n);
+    const waitPlayed = n => page.waitForFunction(n => playedFields.length >= n, n, { polling: 50 });
     check(await page.locator('.chord-chip[data-chord="Bm"]').count() === 1, 'B minor has one compact all-register chord button');
     await resetPlayed();
     await page.click('.chord-chip[data-chord="Bm"]');
@@ -108,31 +108,36 @@ function check(value, message) { assert.ok(value, message); count++; }
     assert.deepEqual((await played()).map(f => f.midi), [47, 50, 54, 59, 62, 66, 71, 74, 78]); count++;
     check((await page.textContent('#chord-detail')).includes('B2') && (await page.textContent('#chord-detail')).includes('F♯5'), 'Chord feedback names every played register');
     const demoLayout = await layout();
+    // Keep timed sequences independent of software GPU frame/stability waits.
+    // These still send actual pointer events to the rendered controls.
+    const pointerClick = async selector => {
+      await page.locator(selector).evaluate(el => el.scrollIntoView({ block: 'nearest', behavior: 'instant' }));
+      const box = await page.locator(selector).boundingBox();
+      assert.ok(box, `${selector} is rendered`);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    };
     for (const side of ['top', 'bottom', 'all']) {
       await resetPlayed();
-      await page.click(`[data-demo="${side}"]`);
-      await page.waitForFunction(() => !!__elaia.demo && !__elaia.demo.loading);
+      await pointerClick(`[data-demo="${side}"]`);
+      await page.waitForFunction(() => !!__elaia.demo && !__elaia.demo.loading, null, { polling: 50 });
       check(await page.locator('#demo-stop').isVisible() && await page.locator(`[data-demo="${side}"]`).getAttribute('aria-pressed') === 'true', `${side} demo has an active control and Stop`);
-      await page.waitForFunction(() => !__elaia.demo, null, { timeout: 25000 });
+      await page.waitForFunction(() => !__elaia.demo, null, { timeout: 25000, polling: 50 });
       const expected = demoLayout.fields.filter(f => side === 'all' || f.side === side).sort((a, b) => a.midi - b.midi);
       assert.deepEqual((await played()).map(f => f.id), expected.map(f => f.id)); count++;
       check(await page.locator('#demo-stop').isHidden(), `${side} demo returns to idle after its last note`);
     }
-    await resetPlayed(); await page.click('[data-demo="all"]'); await waitPlayed(1);
-    await page.click('#demo-stop'); const stopped = (await played()).length;
+    await resetPlayed(); await pointerClick('[data-demo="all"]'); await waitPlayed(1);
+    await pointerClick('#demo-stop'); const stopped = (await played()).length;
     await page.waitForTimeout(800);
     check((await played()).length === stopped && await page.evaluate(() => __elaia.playTimers.size === 0), 'Stop cancels every remaining demo strike');
-    const bottomDemo = await page.locator('[data-demo="bottom"]').boundingBox();
-    await resetPlayed(); await page.click('[data-demo="top"]'); await waitPlayed(1);
-    await page.click('[data-demo="bottom"]');
-    await page.waitForFunction(() => playedFields.some(f => f.side === 'bottom'));
+    await resetPlayed(); await pointerClick('[data-demo="top"]'); await waitPlayed(1);
+    await pointerClick('[data-demo="bottom"]');
+    await page.waitForFunction(() => playedFields.some(f => f.side === 'bottom'), null, { polling: 50 });
     check((await played()).find(f => f.side === 'bottom').midi === 47 && await page.evaluate(() => __elaia.demo?.side === 'bottom'), 'Switching demos starts the new shell at its lowest note');
-    // A normal locator click waits for compositing; the four-second demo can
-    // finish meanwhile on software WebGL. Send a real pointer click directly.
-    await page.mouse.click(bottomDemo.x + bottomDemo.width / 2, bottomDemo.y + bottomDemo.height / 2);
+    await pointerClick('[data-demo="bottom"]');
     check(await page.evaluate(() => !__elaia.demo && !__elaia.playTimers.size), 'Tapping the active demo also stops it');
-    await resetPlayed(); await page.click('[data-demo="all"]'); await waitPlayed(1);
-    await page.click('.note-chip[data-id="n0"]'); await waitPlayed(2);
+    await resetPlayed(); await pointerClick('[data-demo="all"]'); await waitPlayed(1);
+    await pointerClick('.note-chip[data-id="n0"]'); await waitPlayed(2);
     const takeover = (await played()).length; await page.waitForTimeout(800);
     check((await played()).length === takeover && await page.evaluate(() => !__elaia.demo), 'Playing manually stops the demo and plays the chosen field');
     const demoTitle = demoLayout.title;
@@ -143,9 +148,9 @@ function check(value, message) { assert.ok(value, message); count++; }
         window.prepareGate = new Promise(resolve => { window.releasePrepare = resolve; });
         __elaia.audio.prepare = id => prepareGate.then(() => originalPrepare(id));
       });
-      await page.click('[data-demo="all"]');
+      await pointerClick('[data-demo="all"]');
       check((await page.textContent('#demo-status')).includes('Loading') && !(await played()).length, 'A cold demo waits for recordings without a synth attack');
-      if (cancel === 'stop') await page.click('#demo-stop');
+      if (cancel === 'stop') await pointerClick('#demo-stop');
       else await page.evaluate(() => __elaia.commit({ ...__elaia.layout, title: 'Cancel pending demo' }, { geometry: false }));
       await page.evaluate(() => { __elaia.audio.prepare = originalPrepare; releasePrepare(); });
       await page.waitForTimeout(800);
