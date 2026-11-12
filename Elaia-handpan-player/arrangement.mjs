@@ -1,4 +1,5 @@
-import { PRESETS, MIDI_MIN, MIDI_MAX, MAX_FIELDS, createLayout, clone, fits, automaticField } from './model.mjs';
+import { PRESETS, MIDI_MIN, MIDI_MAX, MAX_FIELDS, createLayout, clone, fits, automaticField, transposeLayout } from './model.mjs';
+import { allowedNote, sizeForNote, rimAngle } from './tonefields.mjs';
 
 const presetFor = layout => PRESETS.find(p => p.id === layout.preset) || PRESETS.find(p => p.profile === layout.arrangement);
 export function originalLayout(layout) {
@@ -9,8 +10,12 @@ export function originalLayout(layout) {
 function factory(layout) {
   const preset = presetFor(layout);
   if (!preset) return null;
-  const source = createLayout(preset);
-  source.fields.forEach(f => { f.midi += layout.transpose; });
+  let source = createLayout(preset);
+  if (layout.transpose) {
+    try { source = transposeLayout(source, layout.transpose); }
+    catch { source.fields.forEach(f => { f.midi += layout.transpose; }); }
+  }
+  if (layout.position === 2) orientPosition(source, 2);
   return source;
 }
 function sourceField(field, source) {
@@ -20,6 +25,48 @@ function sourceField(field, source) {
 function innerFields(source) {
   const top = source.fields.filter(f => f.side === 'top');
   return top.filter(f => f !== top[0] && Math.hypot(f.x, f.z) < 0.6);
+}
+
+// Mudra's public player uses one front-centred ring field in Position 1 and
+// two front fields in Position 2. Offset the ring by half its first interval;
+// retain the player-facing ding and mutant group. Both shells share the turn.
+// Reference: https://player.mudrahandpan.com/ (custom-9 / custom-9-pos2 SVGs).
+function positionTurn(layout) {
+  const source = createLayout(presetFor(layout) || PRESETS[0]);
+  const inner = new Set(innerFields(source).map(f => f.id));
+  const ring = source.fields.filter(f => f.side === 'top' && f.id !== source.fields[0].id && !inner.has(f.id));
+  if (ring.length < 2) return 0;
+  const [a, b] = ring;
+  const delta = Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z);
+  return -delta / 2;
+}
+
+function orientPosition(layout, position) {
+  const turn = positionTurn(layout) * (position - (layout.position || 1));
+  const source = createLayout(presetFor(layout) || PRESETS[0]);
+  const inner = new Set([source.fields[0].id, ...innerFields(source).map(f => f.id)]);
+  const c = Math.cos(turn), s = Math.sin(turn);
+  for (const field of layout.fields) {
+    const slot = field.autoSlot || field.id;
+    if (field.side === 'top' && (slot === 'mutant' || inner.has(slot))) continue;
+    const { x, z } = field;
+    field.x = x * c - z * s; field.z = x * s + z * c;
+    field.angle += turn;
+  }
+  layout.position = position;
+  return layout;
+}
+
+export function setPlayingPosition(layout, position) {
+  if (![1, 2].includes(position)) throw new Error('Choose playing position 1 or 2.');
+  if ((layout.position || 1) === position) return clone(layout);
+  const next = orientPosition(clone(layout), position);
+  if (!next.fields.every(f => fits(next, f))) {
+    if (!canAutoArrange(layout) || !arrangeCluster(next, factory(next)) || !next.fields.every(f => fits(next, f))) {
+      throw new Error('That playing position needs more space around the inner notes. Move a field first.');
+    }
+  }
+  return next;
 }
 function samePosition(a, b) {
   return a.side === b.side && ['x', 'z', 'size', 'angle', 'aspect']
@@ -31,7 +78,8 @@ export function canAutoArrange(layout) {
   return layout.fields.every(f => {
     if (f.autoSlot === 'mutant' || (f.side === 'bottom' && f.autoSlot === 'free')) return true;
     const original = sourceField(f, source);
-    return original && samePosition(f, original);
+    return original && (samePosition(f, original) || f.autoSlot && f.side === original.side
+      && Math.hypot(f.x - original.x, f.z - original.z) < 1e-5);
   });
 }
 function missingSlots(layout, source, side, includeInner = true) {
@@ -48,14 +96,14 @@ export function nextNote(layout, side, after) {
   const source = factory(layout);
   if (source && canAutoArrange(layout)) {
     const missing = missingSlots(layout, source, side);
-    const available = missing.find(f => f.midi >= MIDI_MIN && f.midi <= MIDI_MAX);
+    const available = missing.find(f => allowedNote(f.midi, side));
     if (available) return available.midi;
   }
   const pitches = scalePitches(layout);
   if (!pitches.length) return null;
   const fields = layout.fields.filter(f => f.side === side && f.midi !== null);
   const start = Math.max(MIDI_MIN - 1, after ?? Math.max(...fields.map(f => f.midi), source?.fields[0].midi ?? 48));
-  for (let midi = start + 1; midi <= MIDI_MAX; midi++) if (pitches.includes(midi % 12)) return midi;
+  for (let midi = start + 1; midi <= MIDI_MAX; midi++) if (allowedNote(midi, side) && pitches.includes(midi % 12)) return midi;
   return null;
 }
 
@@ -88,37 +136,35 @@ function arrangeCluster(layout, source) {
   const fields = mutants(layout, source), points = CLUSTERS[fields.length];
   if (!points) return false;
   if (!fields.length) return true;
-  for (const scale of [1, 0.94, 0.88, 0.82, 0.76, 0.7, 0.64, 0.58]) {
-    for (const stretch of [1, 1.06, 0.94, 1.12]) for (const offset of [0, -0.02, 0.02, -0.04, 0.04]) {
-      const trial = fields.map((f, i) => {
-        const [x, z] = points[i], autoSize = f.autoSize ?? f.size;
-        return { ...f, x: x * stretch, z: z + offset, angle: Math.atan2(z, x),
-          size: Math.max(0.07, autoSize * scale), autoSize, autoSlot: 'mutant' };
-      });
-      const proposed = { ...layout, fields: layout.fields.map(f => trial.find(t => t.id === f.id) || f) };
-      if (!trial.every(f => fits(proposed, f))) continue;
-      layout.fields = proposed.fields; return true;
-    }
+  for (const stretch of [1, 1.06, 0.94, 1.12, 1.18]) for (const offset of [0, -0.02, 0.02, -0.04, 0.04, -0.06, 0.08, 0.1, 0.12]) {
+    const trial = fields.map((f, i) => {
+      const [x, z] = points[i], next = { ...f, x: x * stretch, z: z + offset, autoSlot: 'mutant' };
+      next.angle = rimAngle(next);
+      return next;
+    });
+    const proposed = { ...layout, fields: layout.fields.map(f => trial.find(t => t.id === f.id) || f) };
+    if (!trial.every(f => fits(proposed, f))) continue;
+    layout.fields = proposed.fields; return true;
   }
   return false;
 }
 export function addToneField(layout, { id, midi, side }) {
-  if (layout.fields.length >= MAX_FIELDS) return null;
+  if (layout.fields.length >= MAX_FIELDS || !allowedNote(midi, side)) return null;
   const next = clone(layout), source = factory(layout), automatic = canAutoArrange(layout);
   let field;
   if (automatic) {
     const slots = missingSlots(layout, source, side, side !== 'top');
     const slot = slots.find(f => f.midi === midi) || slots[0];
-    if (slot) field = { ...slot, id, midi, autoSlot: slot.id };
+    if (slot) {
+      field = sizeForNote(layout, { ...slot, id, midi, autoSlot: slot.id });
+      if (!fits(layout, field)) return null;
+    }
     else if (side === 'top') {
       if (mutants(layout, source).length >= 5) return null;
       const missing = missingSlots(layout, source, 'top').find(f => f.midi === midi);
-      if (missing) field = { ...missing, id, midi, autoSlot: 'mutant' };
+      if (missing) field = sizeForNote(layout, { ...missing, id, midi, autoSlot: 'mutant' });
       else {
-        const reference = source.fields.filter(f => f.side === 'top')
-          .reduce((best, f) => Math.abs(f.midi - (midi ?? 78)) < Math.abs(best.midi - (midi ?? 78)) ? f : best);
-        const size = Math.max(0.075, Math.min(0.17, reference.size * 2 ** ((reference.midi - (midi ?? reference.midi)) / 24)));
-        field = { id, midi, side, x: 0, z: -0.47, size, aspect: 0.82, angle: -Math.PI / 2, shape: 'dimple', autoSlot: 'mutant' };
+        field = sizeForNote(layout, { id, midi, side, x: 0, z: -0.47, angle: 0, autoSlot: 'mutant' });
       }
     }
   }

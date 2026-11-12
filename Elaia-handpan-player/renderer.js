@@ -40,9 +40,9 @@ function inverse(m) {
   return Float32Array.from(Array.from({ length: 16 }, (_, i) => rows[i % 4][4 + Math.floor(i / 4)]));
 }
 
-function lookAt(eye) {
+function lookAt(eye, yaw) {
   const z = normalize(eye);
-  const x = normalize(cross([0, 1, 0], z)), y = cross(z, x);
+  const x = [Math.cos(yaw), 0, -Math.sin(yaw)], y = cross(z, x);
   return new Float32Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0,
     x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1]);
 }
@@ -208,7 +208,7 @@ export class HandpanRenderer {
     this.indexBuffer = gl.createBuffer();
     this.largeIndices = !!gl.getExtension('OES_element_index_uint');
     this.width = 1; this.height = 1;
-    this.pitch = 1.12; this.yaw = -0.12; this.zoom = 1;
+    this.pitch = Math.PI / 2; this.yaw = 0; this.zoom = 1;
     this.view = 'top'; this.targetPitch = this.pitch;
     this.hits = new Float32Array(48);
     this.strikeFields = new Float32Array(48);
@@ -222,9 +222,10 @@ export class HandpanRenderer {
     canvas.addEventListener('webglcontextrestored', () => location.reload());
   }
 
-  resize(width, height) {
+  resize(width, height, frame = null) {
     const wasMobile = this.width < 650;
     this.width = Math.max(1, width); this.height = Math.max(1, height);
+    this.frame = frame;
     // Cap pixel work on high-density phones.
     const dpr = Math.min(devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(width * dpr); this.canvas.height = Math.round(height * dpr);
@@ -241,7 +242,7 @@ export class HandpanRenderer {
 
   normalCacheKey(layout, size) {
     return JSON.stringify([layout.arrangement, layout.fields.map(f =>
-      [f.id, f.side, f.x, f.z, f.size, f.angle, f.aspect, f.geometry, f.shape]), size]);
+      [f.id, f.side, f.x, f.z, f.size, f.angle, f.aspect, f.geometry, f.shape, f.dimpleSize, f.dimpleAspect]), size]);
   }
 
   writeNormals({ side, left, top, right, bottom }, upload = false) {
@@ -481,25 +482,29 @@ export class HandpanRenderer {
 
   camera() {
     const mobile = this.width < 620;
-    const available = Math.min(this.width * (mobile ? 0.84 : 0.81), (this.height - (this.height < 400 ? 110 : 165)) * 1.02);
-    const distance = this.height / Math.max(available, 100) / Math.tan(19 * Math.PI / 180) / this.zoom;
+    const vertical = this.frame ? Math.max(20, this.frame.bottom - this.frame.top) * 0.95
+      : (this.height - (mobile ? 258 : this.height < 400 ? 170 : 235)) * 1.02;
+    const available = Math.min(this.width * (mobile ? 0.84 : 0.81), vertical);
+    const distance = this.height / Math.max(available, this.frame ? 20 : mobile ? 80 : 100) / Math.tan(19 * Math.PI / 180) / this.zoom;
     this.eye = [Math.sin(this.yaw) * Math.cos(this.pitch) * distance,
       Math.sin(this.pitch) * distance, Math.cos(this.yaw) * Math.cos(this.pitch) * distance];
     const f = 1 / Math.tan(19 * Math.PI / 180), aspect = this.width / this.height;
-    const projection = new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, mobile ? 0.04 : -0.14, -1.002, -1, 0, 0, -0.2002, 0]);
-    this.vp = multiply(projection, lookAt(this.eye));
+    const offset = this.frame ? (this.frame.top + this.frame.bottom) / this.height - 1 : mobile ? -0.08 : -0.14;
+    const projection = new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, offset, -1.002, -1, 0, 0, -0.2002, 0]);
+    this.vp = multiply(projection, lookAt(this.eye, this.yaw));
     this.invVP = inverse(this.vp);
   }
 
   setView(view) {
     this.view = view;
-    if (view === 'top') this.targetPitch = 1.12;
-    if (view === 'bottom') this.targetPitch = -1.12;
+    if (view !== 'free') this.yaw = 0;
+    if (view === 'top') this.targetPitch = Math.PI / 2;
+    if (view === 'bottom') this.targetPitch = -Math.PI / 2;
     if (view === 'free') this.targetPitch = this.pitch;
     this.dirty = true;
   }
 
-  reset() { this.yaw = -0.12; this.zoom = 1; this.setView(this.view === 'bottom' ? 'bottom' : 'top'); }
+  reset() { this.yaw = 0; this.zoom = 1; this.setView(this.view === 'bottom' ? 'bottom' : 'top'); }
   orbit(dx, dy) {
     this.yaw -= dx * 0.007;
     this.pitch = Math.max(-1.48, Math.min(1.48, this.pitch + dy * 0.007));
@@ -602,6 +607,8 @@ export class HandpanRenderer {
     if (this.lost || !this.layout) return false;
     if (Math.abs(this.pitch - this.targetPitch) > 0.001) {
       this.pitch += (this.targetPitch - this.pitch) * 0.15; this.dirty = true;
+    } else if (this.pitch !== this.targetPitch) {
+      this.pitch = this.targetPitch; this.dirty = true;
     }
     if (!this.dirty && time > this.activeUntil) return false;
     this.dirty = false; this.camera(); this.updatePositions();

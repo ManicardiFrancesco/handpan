@@ -49,3 +49,7 @@ export function portRadius(layout) {
   // At a 530 mm shell diameter, this gives a 95.4 mm opening.
   return layout.fields.some(f => f.geometry) ? Math.min(shellGeometry(layout.arrangement).port, 0.18) : 0.18;
 }
+
+export function bodyDiameter(layout) {
+  return (GEOMETRY_DATA[layout.arrangement]?.radius || GEOMETRY_DATA['d-aegean-18'].radius) * 2;
+}

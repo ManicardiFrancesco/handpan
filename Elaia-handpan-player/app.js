@@ -1,16 +1,17 @@
 import { HandpanRenderer } from './renderer.js';
 import { ElaiaAudio } from './audio.js';
 import { findChords } from '../src/theory/chords.js';
-import { chordVoicings, demoFields } from './playback.mjs';
-import { addToneField, removeToneField, nextNote, scalePitches, placementStatus, originalLayout } from './arrangement.mjs';
+import { chordArpeggio, demoFields } from './playback.mjs';
+import { addToneField, removeToneField, nextNote, scalePitches, placementStatus, originalLayout, setPlayingPosition, canAutoArrange } from './arrangement.mjs';
 import {
   PRESETS, MAX_FIELDS, MIDI_MIN, MIDI_MAX, KEYS, clone, createLayout,
-  validateLayout, transposeLayout, fits, nameOf, frequencyOf, titleFor,
+  validateLayout, transposeLayout, nextTranspose, fits, footprint, nameOf, frequencyOf, titleFor,
   encodeLayout, decodeLayout, loadStorage,
   arrangementInfo,
   restoreCurrent,
 } from './model.mjs';
-import { fieldShape } from './geometry.mjs';
+import { fieldShape, fieldGeometry, bodyDiameter } from './geometry.mjs';
+import { allowedNote, stepNote, sizeForNote, dragAngle, noteDimensions } from './tonefields.mjs';
 
 const CURRENT_KEY = 'elaia.current.v1', LIBRARY_KEY = 'elaia.library.v1';
 const $ = id => document.getElementById(id);
@@ -33,6 +34,7 @@ class Elaia {
     this.keyboard = false; this.history = []; this.future = []; this.pointers = new Map();
     this.playTimers = new Set(); this.playGeneration = 0; this.noteTimers = new Map(); this.demo = null;
     this.fieldLabels = new Map();
+    this.showBottom = false;
     this.library = []; this.storageAvailable = true;
     this.layout = createLayout();
     this.restore();
@@ -52,7 +54,7 @@ class Elaia {
       this.resizeObserver.observe($('stage'));
       this.resize();
       const animate = time => {
-        if (!document.hidden && this.renderer.draw(time / 1000)) this.updateLabels();
+        if (!document.hidden && this.renderer.draw(time / 1000)) { this.updateLabels(); this.updateBottomOverlay(); }
         this.animation = requestAnimationFrame(animate);
       };
       this.animation = requestAnimationFrame(animate);
@@ -103,10 +105,12 @@ class Elaia {
     this.toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4000);
   }
 
-  fillNoteSelect(select) {
+  fillNoteSelect(select, side = 'top', selected = select.value) {
+    select.replaceChildren();
     select.append(new Option('Unassigned', ''));
     let group, octave;
     for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+      if (!allowedNote(midi, side)) continue;
       const current = Math.floor(midi / 12) - 1;
       if (current !== octave) {
         octave = current; group = make('optgroup');
@@ -114,12 +118,17 @@ class Elaia {
       }
       group.append(new Option(nameOf(midi), midi));
     }
+    select.value = selected;
   }
 
   resize() {
     if (!this.renderer) return;
-    const rect = $('stage').getBoundingClientRect();
-    this.renderer.resize(rect.width, rect.height);
+    const stage = $('stage'), rect = stage.getBoundingClientRect();
+    const frame = rect.width < 620 ? {
+      top: stage.querySelector('.instrument-heading').getBoundingClientRect().bottom - rect.top + 10,
+      bottom: stage.querySelector('.stage-tools').getBoundingClientRect().top - rect.top - 10,
+    } : null;
+    this.renderer.resize(rect.width, rect.height, frame);
     this.fieldLabels.forEach(entry => { entry.width = 0; });
   }
 
@@ -147,6 +156,7 @@ class Elaia {
   rebuild({ geometry = true, audio = true } = {}) {
     if (!this.layout.fields.some(f => f.id === this.selected)) this.selected = null;
     if (audio) this.audio.build(this.layout);
+    else this.audio.setPans(this.layout);
     if (this.renderer) {
       this.renderer.layout = this.layout;
       this.renderer.selected = this.selected; this.renderer.edit = this.editing;
@@ -162,10 +172,15 @@ class Elaia {
     $('scale-subtitle').textContent = `${this.layout.custom ? 'Custom instrument' : 'Ayasa'} · ${this.layout.fields.length} notes · ${this.layout.a4} Hz`;
     $('notes-total').textContent = this.layout.fields.length;
     $('custom-badge').hidden = !this.layout.custom;
-    $('transpose-value').textContent = delta === 0 ? 'Original' : `${delta > 0 ? '+' : ''}${delta} st`;
+    $('transpose-value').textContent = delta === 0 ? 'Transpose' : `${delta > 0 ? '+' : ''}${delta} st`;
     $('instrument-meta').textContent = `${this.layout.a4} Hz  ·  ${this.layout.fields.length} fields  ·  ${arrangementInfo(this.layout)}`;
-    $('transpose-down').disabled = this.layout.fields.some(f => f.midi !== null && f.midi <= MIDI_MIN);
-    $('transpose-up').disabled = this.layout.fields.some(f => f.midi >= MIDI_MAX);
+    for (const [id, direction] of [['transpose-down', -1], ['transpose-up', 1]]) {
+      const step = nextTranspose(this.layout, direction);
+      $(id).disabled = step === null;
+      $(id).title = step === null ? 'No supported key in this direction' : `Transpose ${step > 0 ? '+' : ''}${step} semitone${Math.abs(step) === 1 ? '' : 's'}; skips B♭4`;
+    }
+    markActive('[data-position]', 'position', this.layout.position || 1);
+    $('bottom-overlay-btn').disabled = !this.renderer || !this.layout.fields.some(f => f.side === 'bottom');
     const canRestore = this.layout.custom || this.layout.transpose !== 0 || this.layout.manualPlacement;
     $('restore-original').hidden = !canRestore;
     document.body.classList.toggle('can-restore', !!canRestore);
@@ -227,21 +242,16 @@ class Elaia {
     this.chords = findChords(notes, { minNotes: 3, maxResults: 9, tonicPc: notes[0]?.midi % 12 });
     $('chords').replaceChildren();
     this.chords.forEach(chord => {
-      chord.voicings = chordVoicings(chord, notes);
-      const group = make('div', 'chord-family'), choices = make('div', 'chord-voicings');
-      group.setAttribute('role', 'group'); group.setAttribute('aria-label', chord.fullName + ' root octaves');
-      group.append(make('span', 'chord-name', chord.plainSymbol.replaceAll('b', '♭').replaceAll('#', '♯')));
-      chord.voicings.forEach(voicing => {
-        const button = make('button', 'chord-chip', voicing.octave);
-        button.dataset.chord = chord.plainSymbol; button.dataset.rootMidi = voicing.rootMidi;
-        button.title = `${voicing.symbol} · ${voicing.notes.map(n => nameOf(n.midi)).join(' · ')}`;
-        button.setAttribute('aria-label', `Play ${chord.fullName}, root ${nameOf(voicing.rootMidi)}: ${voicing.notes.map(n => nameOf(n.midi)).join(', ')}`);
-        button.onclick = () => this.strum(voicing, button);
-        choices.append(button);
-      });
-      group.append(choices); $('chords').append(group);
+      const arpeggio = chordArpeggio(chord, notes);
+      chord.notes = arpeggio.notes;
+      const button = make('button', 'chord-chip', chord.plainSymbol.replaceAll('b', '♭').replaceAll('#', '♯'));
+      button.dataset.chord = chord.plainSymbol;
+      button.title = `${chord.plainSymbol} · ${arpeggio.notes.map(n => nameOf(n.midi)).join(' · ')}`;
+      button.setAttribute('aria-label', `Arpeggiate ${chord.fullName}: ${arpeggio.notes.map(n => nameOf(n.midi)).join(', ')}`);
+      button.onclick = () => this.strum(arpeggio, button);
+      $('chords').append(button);
     });
-    $('chord-detail').textContent = 'Choose a root octave to hear its notes.';
+    $('chord-detail').textContent = 'Choose a chord to hear every matching note, low to high.';
     if (!this.chords.length) $('chords').append(make('p', 'editor-hint', 'Add a few more notes to discover harmonies.'));
   }
 
@@ -274,7 +284,7 @@ class Elaia {
   async play(id, velocity = 0.64, position = 0.14, { automatic = false } = {}) {
     const field = this.layout.fields.find(f => f.id === id);
     if (!field || field.midi === null) return;
-    if (this.demo && !automatic) this.damp();
+    if (!automatic && (this.demo || this.playTimers.size)) this.damp();
     const generation = this.playGeneration;
     if (!await this.boot() || generation !== this.playGeneration || !this.layout.fields.some(f => f.id === id)) return;
     await this.audio.prepare(id);
@@ -314,9 +324,9 @@ class Elaia {
     button.classList.add('sounding');
     $('chord-detail').textContent = `${chord.symbol.replaceAll('b', '♭').replaceAll('#', '♯')} · ${chord.notes.map(n => nameOf(n.midi)).join(' · ')}`;
     chord.notes.forEach((note, i) => {
-      this.schedule(() => this.play(note.id, 0.5, 0.14, { automatic: true }), i * 48, generation);
+      this.schedule(() => this.play(note.id, 0.5, 0.14, { automatic: true }), i * 180, generation);
     });
-    this.schedule(() => button.classList.remove('sounding'), 1100, generation);
+    this.schedule(() => button.classList.remove('sounding'), chord.notes.length * 180 + 500, generation);
   }
 
   async playDemo(side) {
@@ -353,13 +363,11 @@ class Elaia {
   }
 
   setAdvanced(value) {
-    if (this.demo) this.damp();
+    if (this.demo || this.playTimers.size) this.damp();
     this.advanced = value;
     document.body.classList.toggle('advanced', value);
     $('advanced-btn').setAttribute('aria-pressed', String(value));
     $('advanced-btn').classList.toggle('active', value);
-    $('play-mode-btn').setAttribute('aria-pressed', String(!value));
-    $('play-mode-btn').classList.toggle('active', !value);
     $('advanced-panel').hidden = !value; $('normal-panel-footer').hidden = value; $('edit-banner').hidden = !value;
     $('editor-footer').hidden = !value;
     for (const [selector, target, home] of [
@@ -415,7 +423,10 @@ class Elaia {
     $('edit-message').textContent = tool === 'select' ? 'Drag a field to move it' : 'Add notes with one tap';
     $('add-settings').hidden = tool !== 'add';
     if (enteringAdd) {
-      $('add-side').value = this.renderer?.eye?.[1] < 0 ? 'bottom' : 'top';
+      const view = this.renderer?.view;
+      $('add-side').value = view === 'bottom' || view === 'free' && this.renderer.eye[1] < 0
+        || !view && this.noteSide === 'bottom' ? 'bottom' : 'top';
+      this.fillNoteSelect($('add-note'), $('add-side').value);
       this.suggestAdd();
     }
     $('instrument').style.cursor = 'grab';
@@ -434,7 +445,7 @@ class Elaia {
     markActive('[data-view]', 'view', view);
     if (view !== 'free') this.setPlayTab(view, false);
     if (this.tool === 'add' && view !== 'free' && $('add-side').value !== view) {
-      $('add-side').value = view; this.suggestAdd(); this.renderAdd();
+      $('add-side').value = view; this.fillNoteSelect($('add-note'), view); this.suggestAdd(); this.renderAdd();
     }
   }
 
@@ -457,14 +468,19 @@ class Elaia {
     if (!field) return;
     const ding = field.side === 'top' && Math.hypot(field.x, field.z) < 0.1;
     $('selected-field-title').textContent = `${ding ? 'Ding' : 'Tone field'} · ${field.side === 'top' ? 'Top' : 'Bottom'}`;
-    $('field-note').value = field.midi ?? '';
+    this.fillNoteSelect($('field-note'), field.side, field.midi ?? '');
     $('field-frequency').textContent = field.midi === null ? 'Choose a pitch' : `${frequencyOf(field.midi, this.layout.a4).toFixed(2)} Hz`;
-    $('field-down').disabled = field.midi === null || field.midi === MIDI_MIN; $('field-up').disabled = field.midi === null || field.midi === MIDI_MAX;
+    $('field-down').disabled = stepNote(field.midi, -1, field.side) === null;
+    $('field-up').disabled = stepNote(field.midi, 1, field.side) === null;
     $('audition-btn').disabled = field.midi === null;
-    markActive('[data-side]', 'side', field.side);
+    $('field-shell-label').textContent = `${field.side === 'top' ? 'Top' : 'Bottom'} shell`;
     $('field-shape').value = fieldShape(field, this.layout);
-    $('field-size').value = field.size;
-    $('field-size-value').textContent = `${Math.round(field.size * 530)} × ${Math.round(field.size * 530 * (field.aspect ?? 0.82))} mm`;
+    $('field-shape').disabled = field.midi > 76;
+    const diameter = bodyDiameter(this.layout), source = fieldGeometry(field.geometry), core = source?.dimple || source?.tier1;
+    const innerMajor = field.dimpleSize !== undefined ? field.dimpleSize * diameter : core ? Math.max(core.Ru, core.Rv) * 2 : field.size * diameter * 0.28;
+    const innerMinor = field.dimpleSize !== undefined ? innerMajor * (field.dimpleAspect ?? field.aspect ?? 0.82) : core ? Math.min(core.Ru, core.Rv) * 2 : innerMajor * (field.aspect ?? 0.82);
+    const provenance = field.dimpleSize !== undefined ? noteDimensions(field.midi)?.source : 'Ayasa';
+    $('field-dimensions').textContent = `Tonefield ${Math.round(field.size * diameter * (field.aspect ?? 0.82))} × ${Math.round(field.size * diameter)} mm · Dimple ${Math.round(innerMinor)} × ${Math.round(innerMajor)} mm${provenance ? ' · ' + provenance : ''}`;
     const angle = ((field.angle * 180 / Math.PI + 540) % 360) - 180;
     $('field-angle').value = angle; $('field-angle-value').textContent = `${Math.round(angle)}°`;
     $('remove-field').disabled = this.layout.fields.length <= 1;
@@ -474,12 +490,18 @@ class Elaia {
     if (!this.selectedField()) return;
     const next = clone(this.layout), field = next.fields.find(f => f.id === this.selected);
     Object.assign(field, change);
-    if ((change.side || change.size || change.x !== undefined || change.angle !== undefined) && !fits(next, field)) {
-      this.toast(change.side ? 'There is no room at that position on the other shell. Move the field first, or add it on that side.' : 'Leave a little space between fields and around the rim.');
+    if (change.midi !== undefined) {
+      if (!allowedNote(field.midi, field.side)) { this.toast('Use F2–E6 without B♭4; bottom notes start at G♯2.'); this.renderInspector(); return; }
+      Object.assign(field, sizeForNote(next, field));
+      delete field.geometry; delete field.autoSize; delete field.lowerGeometry;
+      if (canAutoArrange(this.layout)) field.autoSlot ??= field.id;
+    }
+    if ((change.midi !== undefined || change.size || change.x !== undefined || change.angle !== undefined) && !fits(next, field)) {
+      this.toast(change.midi !== undefined ? 'That note’s full-size field needs more room. Move nearby fields or add it elsewhere.' : 'Leave a little space between fields and around the rim.');
       this.renderInspector(); return;
     }
-    if (['side', 'size', 'x', 'z', 'angle', 'aspect'].some(key => change[key] !== undefined)) next.manualPlacement = true;
-    this.commit(next, { geometry: change.midi === undefined, audio: change.midi !== undefined || change.side !== undefined, ...options });
+    if (['size', 'x', 'z', 'angle', 'aspect'].some(key => change[key] !== undefined)) next.manualPlacement = true;
+    this.commit(next, { geometry: true, audio: change.midi !== undefined, ...options });
   }
 
   suggestAdd(after) {
@@ -493,8 +515,10 @@ class Elaia {
     $('placement-status').textContent = status.label;
     $('follow-scale').disabled = !scalePitches(this.layout).length;
     $('place-note-btn').textContent = midi === null ? 'Add unassigned field' : `Add ${nameOf(midi)}`;
-    $('place-note-btn').disabled = status.full || this.layout.fields.length >= MAX_FIELDS;
+    $('place-note-btn').disabled = status.full || this.layout.fields.length >= MAX_FIELDS || !allowedNote(midi, side)
+      || (midi === null && $('follow-scale').checked && scalePitches(this.layout).length > 0);
     if (status.full) $('add-feedback').textContent = 'All five inner slots are used. Choose Bottom or drag a field to use a manual layout.';
+    else if (midi === null && $('follow-scale').checked && scalePitches(this.layout).length) $('add-feedback').textContent = 'No higher scale notes within F2–E6. Choose a lower note or turn off Follow scale for an unassigned field.';
     else if (this.lastAdded && this.layout.fields.some(f => f.id === this.lastAdded)) {
       const last = this.layout.fields.find(f => f.id === this.lastAdded);
       $('add-feedback').textContent = `${nameOf(last.midi)} added. ${midi === null ? 'Keep adding, then choose pitches.' : `Next: ${nameOf(midi)}.`}`;
@@ -507,7 +531,7 @@ class Elaia {
     const side = $('add-side').value;
     const midi = $('add-note').value === '' ? null : +$('add-note').value;
     const id = 'n-' + crypto.randomUUID().slice(0, 8), next = addToneField(this.layout, { id, midi, side });
-    if (!next) { this.toast(`There is no room on the ${side} shell. Choose the other shell or adjust the layout.`); return; }
+    if (!next) { this.toast(`The full-size field will not fit on the ${side} shell. Choose another pitch or make room by moving fields.`); return; }
     this.selected = id; this.lastAdded = id;
     this.commit(next); this.setView(side);
     if (midi !== null) this.suggestAdd(midi);
@@ -531,7 +555,7 @@ class Elaia {
       container.replaceChildren(); this.fieldLabels.clear(); return;
     }
     const stage = container.getBoundingClientRect(), { width, height } = this.renderer;
-    const obstacles = [...$('stage').querySelectorAll('.instrument-heading, .restore-original, .edit-banner, .view-controls, .stage-hint, .graphics-error')]
+    const obstacles = [...$('stage').querySelectorAll('.instrument-heading, .restore-original, .edit-banner, .stage-tools, .view-controls, .stage-hint, .graphics-error')]
       .filter(el => el.getClientRects().length).map(el => {
         const r = el.getBoundingClientRect();
         return { left: r.left - stage.left, right: r.right - stage.left, top: r.top - stage.top, bottom: r.bottom - stage.top };
@@ -568,6 +592,26 @@ class Elaia {
     }
   }
 
+  updateBottomOverlay() {
+    const overlay = $('bottom-overlay'), renderer = this.renderer;
+    const hidden = !this.showBottom || !renderer || renderer.eye[1] <= 0;
+    overlay.toggleAttribute('hidden', hidden);
+    if (hidden) return;
+    overlay.setAttribute('viewBox', `0 0 ${renderer.width} ${renderer.height}`);
+    overlay.replaceChildren();
+    const element = tag => document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const field of this.layout.fields.filter(f => f.side === 'bottom')) {
+      const path = element('path');
+      const points = footprint(field).map(([x, z]) => renderer.project(renderer.surfaceModel.sample(x, z, 'bottom').slice(0, 3)));
+      path.setAttribute('d', points.map((p, index) => `${index ? 'L' : 'M'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ') + ' Z');
+      path.dataset.id = field.id;
+      const label = element('text'), center = renderer.positions.find(p => p.field.id === field.id);
+      label.setAttribute('x', center.x); label.setAttribute('y', center.y);
+      label.textContent = field.midi === null ? '—' : nameOf(field.midi);
+      overlay.append(path, label);
+    }
+  }
+
   bindPointers() {
     const canvas = $('instrument');
     const point = event => {
@@ -596,7 +640,7 @@ class Elaia {
           this.renderer.interactive = true;
           item.baseline = clone(this.layout);
           const surface = this.renderer.surfacePoint(p.x, p.y);
-          item.offset = { x: pick.field.x - surface.x, z: pick.field.z - surface.z };
+          if (surface) item.offset = { x: pick.field.x - surface.x, z: pick.field.z - surface.z };
         }
       } else if (pick && !orbitOnly) {
         if (pick.field.midi === null) this.noteButtonAction(pick.field);
@@ -617,10 +661,11 @@ class Elaia {
       if (!item.moved) return;
       if (this.editing && item.pick && !item.orbitOnly) {
         const surface = this.renderer.surfacePoint(p.x, p.y), field = this.layout.fields.find(f => f.id === item.pick.field.id);
-        if (!surface || !field || surface.side !== field.side) return;
+        if (!surface || !field || !item.offset || surface.side !== field.side) return;
         const x = surface.x + item.offset.x, z = surface.z + item.offset.z;
-        if (fits(this.layout, field, x, z)) {
-          field.x = x; field.z = z; this.layout.custom = true; this.layout.manualPlacement = true;
+        const angle = dragAngle(field, x, z);
+        if (fits(this.layout, { ...field, angle }, x, z)) {
+          field.x = x; field.z = z; field.angle = angle; this.layout.custom = true; this.layout.manualPlacement = true;
           this.requestMesh(); this.audio.setPans(this.layout);
         }
       } else {
@@ -773,7 +818,6 @@ class Elaia {
     $('scale-btn').onclick = () => { this.renderScales(); $('scale-dialog').showModal(); $('scale-search').focus(); };
     $('scale-search').oninput = () => this.renderScales();
     $('advanced-btn').onclick = () => this.setAdvanced(!this.advanced);
-    $('play-mode-btn').onclick = () => this.setAdvanced(false);
     for (const [selector, choose] of [
       ['[data-editor-tab]', button => this.setEditorTab(button.dataset.editorTab)],
       ['[data-play-tab]', button => this.setPlayTab(button.dataset.playTab)],
@@ -793,14 +837,32 @@ class Elaia {
     $('customize-link').onclick = () => this.setAdvanced(true);
     document.querySelectorAll('[data-demo]').forEach(button => { button.onclick = () => this.playDemo(button.dataset.demo); });
     $('demo-stop').onclick = () => this.damp();
-    $('add-bottom-link').onclick = () => { this.setAdvanced(true); this.setView('bottom'); this.setTool('add'); $('add-side').value = 'bottom'; };
+    $('add-bottom-link').onclick = () => { this.setAdvanced(true); this.setView('bottom'); this.setTool('add'); };
     $('place-note-btn').onclick = () => this.addField();
     $('cancel-add').onclick = () => this.setTool('select');
-    $('add-note').onchange = () => this.renderAdd();
-    $('add-side').onchange = () => { this.setView($('add-side').value); this.suggestAdd(); this.renderAdd(); };
+    $('add-note').onchange = () => {
+      if ($('add-note').value === '') $('follow-scale').checked = false;
+      this.renderAdd();
+    };
+    $('add-side').onchange = () => {
+      this.fillNoteSelect($('add-note'), $('add-side').value);
+      this.setView($('add-side').value); this.suggestAdd(); this.renderAdd();
+    };
     $('follow-scale').onchange = () => { this.suggestAdd(); this.renderAdd(); };
     $('done-edit').onclick = () => this.setAdvanced(false);
     document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => this.setView(b.dataset.view); });
+    document.querySelectorAll('[data-position]').forEach(b => { b.onclick = () => {
+      try { this.commit(setPlayingPosition(this.layout, +b.dataset.position), { audio: false, custom: false }); }
+      catch (error) { this.toast(error.message); }
+    }; });
+    $('bottom-overlay-btn').onclick = () => {
+      this.showBottom = !this.showBottom;
+      $('bottom-overlay-btn').setAttribute('aria-pressed', String(this.showBottom));
+      $('bottom-overlay-btn').classList.toggle('active', this.showBottom);
+      if (this.showBottom) this.setView('top');
+      this.updateBottomOverlay();
+      if (this.renderer) this.renderer.dirty = true;
+    };
     $('bottom-view').onclick = () => this.setView('bottom');
     $('reset-view').onclick = () => { this.renderer?.reset(); this.setView(this.renderer?.view || 'top'); };
     $('sound-btn').onclick = () => {
@@ -825,8 +887,11 @@ class Elaia {
       const next = clone(this.layout); next.a4 = +b.dataset.pitch;
       this.commit(next, { geometry: false, custom: false });
     }; });
-    for (const [id, delta] of [['transpose-down', -1], ['transpose-up', 1]]) $(id).onclick = () => {
-      try { this.commit(transposeLayout(this.layout, delta), { geometry: false }); }
+    for (const [id, direction] of [['transpose-down', -1], ['transpose-up', 1]]) $(id).onclick = () => {
+      try {
+        const delta = nextTranspose(this.layout, direction);
+        if (delta !== null) this.commit(transposeLayout(this.layout, delta));
+      }
       catch (error) { this.toast(error.message); }
     };
     document.querySelectorAll('[data-tool]').forEach(b => { b.onclick = () => {
@@ -835,45 +900,25 @@ class Elaia {
     }; });
     $('field-note').onchange = () => { this.updateField({ midi: $('field-note').value === '' ? null : +$('field-note').value }); this.play(this.selected); };
     $('field-shape').onchange = () => this.updateField({ shape: $('field-shape').value }, { audio: false });
-    $('field-down').onclick = () => { if (this.selectedField()) { this.updateField({ midi: this.selectedField().midi - 1 }); this.play(this.selected); } };
-    $('field-up').onclick = () => { if (this.selectedField()) { this.updateField({ midi: this.selectedField().midi + 1 }); this.play(this.selected); } };
+    for (const [id, direction] of [['field-down', -1], ['field-up', 1]]) $(id).onclick = () => {
+      const field = this.selectedField(), midi = field && stepNote(field.midi, direction, field.side);
+      if (midi !== null && midi !== undefined) { this.updateField({ midi }); this.play(this.selected); }
+    };
     $('audition-btn').onclick = () => this.play(this.selected);
     $('close-inspector').onclick = () => this.select(null);
-    document.querySelectorAll('[data-side]').forEach(b => { b.onclick = () => {
-      if (!this.selectedField()) return;
-      if (this.selectedField().side !== b.dataset.side) {
-        const next = clone(this.layout), field = next.fields.find(f => f.id === this.selected);
-        next.manualPlacement = true;
-        field.side = b.dataset.side;
-        if (!fits(next, field)) {
-          // Quickly find a free slot when the same location would hit the gu or another field.
-          let found = false;
-          for (const radius of [0.65, 0.45, 0.8]) {
-            for (let i = 0; i < 32; i++) {
-              const x = Math.cos(i / 32 * Math.PI * 2) * radius, z = Math.sin(i / 32 * Math.PI * 2) * radius;
-              if (fits(next, field, x, z)) { field.x = x; field.z = z; found = true; break; }
-            }
-            if (found) break;
-          }
-          if (!found) { this.toast('There is no room on that shell. Make the field smaller or move another field.'); return; }
-        }
-        this.commit(next);
-      }
-      this.setView(b.dataset.side);
-    }; });
     // One undo entry per slider gesture, including keyboard changes.
-    for (const [id, property, convert] of [['field-size', 'size', v => +v], ['field-angle', 'angle', v => +v * Math.PI / 180]]) {
+    for (const [id, property, convert] of [['field-angle', 'angle', v => +v * Math.PI / 180]]) {
       const input = $(id);
       input.oninput = () => {
         const field = this.selectedField(); if (!field) return;
         if (!this.rangeBaseline) this.rangeBaseline = clone(this.layout);
         const value = convert(input.value), test = { ...field, [property]: value };
-        if (!fits(this.layout, test)) { input.value = property === 'size' ? field.size : field.angle * 180 / Math.PI; return; }
+        if (!fits(this.layout, test)) { input.value = field.angle * 180 / Math.PI; return; }
         if (field[property] !== value) this.layout.manualPlacement = true;
         field[property] = value; this.layout.custom = true;
         if (this.renderer) this.renderer.interactive = true;
         this.requestMesh();
-        $(id + '-value').textContent = property === 'size' ? `${Math.round(value * 530)} × ${Math.round(value * 530 * (field.aspect ?? 0.82))} mm` : `${Math.round(value * 180 / Math.PI)}°`;
+        $(id + '-value').textContent = `${Math.round(value * 180 / Math.PI)}°`;
       };
       input.onchange = () => {
         if (this.rangeBaseline) this.commit(this.layout, { before: this.rangeBaseline, geometry: false, audio: false });

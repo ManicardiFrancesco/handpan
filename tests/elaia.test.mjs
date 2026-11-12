@@ -3,14 +3,15 @@ import { buildInstrument } from '../src/model/instrument.js';
 import {
   PRESETS, MAX_FIELDS, MIDI_MIN, MIDI_MAX, createLayout, validateLayout,
   transposeLayout, fits, audioLayout, encodeLayout, decodeLayout, clone,
-  automaticField, arrangementInfo, restoreCurrent, titleFor,
+  automaticField, arrangementInfo, restoreCurrent, titleFor, nextTranspose,
 } from '../Elaia-handpan-player/model.mjs';
-import { fieldGeometry, shellGeometry, portRadius } from '../Elaia-handpan-player/geometry.mjs';
+import { fieldGeometry, shellGeometry, portRadius, bodyDiameter } from '../Elaia-handpan-player/geometry.mjs';
 import { HandpanSurface } from '../Elaia-handpan-player/surface.mjs';
 import { sampleFor } from '../Elaia-handpan-player/sample-player.mjs';
 import { findChords } from '../src/theory/chords.js';
-import { chordVoicings, demoFields } from '../Elaia-handpan-player/playback.mjs';
-import { addToneField, removeToneField, nextNote, scalePitches, canAutoArrange, placementStatus, originalLayout } from '../Elaia-handpan-player/arrangement.mjs';
+import { chordArpeggio, demoFields } from '../Elaia-handpan-player/playback.mjs';
+import { addToneField, removeToneField, nextNote, scalePitches, canAutoArrange, placementStatus, originalLayout, setPlayingPosition } from '../Elaia-handpan-player/arrangement.mjs';
+import { allowedNote, noteDimensions, sizeForNote, rimAngle, dragAngle, stepNote } from '../Elaia-handpan-player/tonefields.mjs';
 
 let assertions = 0;
 const check = (condition, message) => { assert.ok(condition, message); assertions++; };
@@ -38,16 +39,10 @@ for (const preset of PRESETS) {
     check(note.modes[2].f === note.f0 * 2 && note.modes[4].f === note.f0 * 3, 'Physical octave and twelfth stay tuned');
   });
   for (const chord of findChords(layout.fields, { minNotes: 3, maxResults: 9 })) {
-    const voicings = chordVoicings(chord, layout.fields);
-    const roots = [...new Set(layout.fields.filter(f => f.midi % 12 === chord.root).map(f => f.midi))].sort((a, b) => a - b);
-    assert.deepEqual(voicings.map(v => v.rootMidi), roots); assertions++;
-    check(new Set(voicings.map(v => v.notes.map(f => f.midi).join(','))).size === voicings.length, 'Equal-pitch fields do not duplicate a chord octave');
-    for (const voicing of voicings) {
-      check(voicing.notes.every(f => layout.fields.includes(f)), 'Chord voicings only play physical fields on the instrument');
-      assert.deepEqual(voicing.notes.map(f => f.midi % 12).sort((a, b) => a - b), [...chord.pcs].sort((a, b) => a - b)); assertions++;
-      check(voicing.notes.some(f => f.midi === voicing.rootMidi) && voicing.octave === Math.floor(voicing.rootMidi / 12) - 1, 'Every octave choice plays its stated root');
-      check(voicing.notes.every((f, i, fields) => !i || f.midi >= fields[i - 1].midi), 'Each chord strums upward through its actual pitches');
-    }
+    const arpeggio = chordArpeggio(chord, layout.fields);
+    assert.deepEqual(arpeggio.notes, layout.fields.filter(f => chord.pcs.includes(f.midi % 12)).sort((a, b) => a.midi - b.midi)); assertions++;
+    check(arpeggio.notes.every(f => layout.fields.includes(f)), 'Chord arpeggios include every matching physical field across both shells');
+    check(arpeggio.notes.every((f, i, fields) => !i || f.midi >= fields[i - 1].midi), 'Chord arpeggios ascend across all registers');
   }
   for (const side of ['top', 'bottom', 'all']) {
     const sequence = demoFields(layout, side);
@@ -62,8 +57,11 @@ for (const preset of PRESETS) {
   let expanded = clone(stock), additions = 0;
   while (!placementStatus(expanded, 'top').full) {
     const midi = nextNote(expanded, 'top');
-    check(midi !== null && scalePitches(stock).includes(midi % 12), 'Rapid additions follow the selected instrument scale');
-    const next = addToneField(expanded, { id: `series-${additions++}`, midi, side: 'top' });
+    if (midi === null) break;
+    check(allowedNote(midi) && scalePitches(stock).includes(midi % 12), 'Rapid additions follow the selected instrument scale within the supported range');
+    const next = addToneField(expanded, { id: `series-${additions}`, midi, side: 'top' });
+    if (!next) break; // Real dimensions can exhaust physical space before five slots.
+    additions++;
     check(!!next && next.fields.length === expanded.fields.length + 1, 'Each automatic addition adds exactly one field');
     expanded = validateLayout(next);
     check(expanded.fields.every(f => fits(expanded, f)) && canAutoArrange(expanded), 'Every automatic cluster fits and stays automatic');
@@ -74,7 +72,7 @@ for (const preset of PRESETS) {
     const centres = cluster.map(f => f.x).sort((a, b) => a - b);
     check(centres.every((x, i) => Math.abs(x + centres[centres.length - i - 1]) < 1e-8), 'Automatic inner clusters have symmetric centres');
   }
-  check(additions === 5 - inner.length && addToneField(expanded, { id: 'sixth', midi: 90, side: 'top' }) === null, 'Automatic top layouts stop at five inner slots');
+  check(additions <= 5 - inner.length && addToneField(expanded, { id: 'outside-range', midi: 90, side: 'top' }) === null, 'Automatic top layouts respect physical capacity, five slots, and E6');
   assert.deepEqual(originalLayout(expanded), stock); assertions++;
   assert.deepEqual(decodeLayout(encodeLayout(expanded)), expanded); assertions++;
   if (additions) {
@@ -94,30 +92,30 @@ for (const preset of PRESETS) {
   missingRing.fields = missingRing.fields.filter(f => f.id !== slot.id);
   check(nextNote(missingRing, 'top') === slot.midi, 'A removed published outer note is suggested before higher extensions');
   const filled = addToneField(missingRing, { id: 'restored-slot', midi: slot.midi, side: 'top' });
-  const restored = filled.fields.find(f => f.id === 'restored-slot');
-  check(['x', 'z', 'size', 'angle', 'aspect', 'geometry', 'shape'].every(key => restored[key] === slot[key]), 'A vacant default slot retains the exact published field position and geometry');
+  if (filled) {
+    const restored = filled.fields.find(f => f.id === 'restored-slot');
+    check(['x', 'z'].every(key => restored[key] === slot[key])
+      && Math.abs(restored.size * bodyDiameter(stock) - noteDimensions(slot.midi).tonefield[1]) < 1e-8, 'A vacant default slot uses its published centre and the supplied note dimensions');
+  } else check(!fits(missingRing, sizeForNote(missingRing, { ...slot, id: 'restored-slot' })), 'A full-size field is rejected when it cannot fit a vacant default position');
 }
 const blank = addToneField(original, { id: 'blank', midi: null, side: 'top' });
 check(blank.fields.at(-1).midi === null && sampleFor(blank, blank.fields.at(-1)) === null, 'Unassigned fields have no placeholder note or recording');
 check(audioLayout(blank).fields.length === original.fields.length && demoFields(blank, 'all').length === original.fields.length, 'Unassigned fields are excluded from audio and demo sequences');
 assert.deepEqual(decodeLayout(encodeLayout(blank)), blank); assertions++;
-check(transposeLayout(blank, 1).fields.at(-1).midi === null, 'Transposition leaves unassigned fields unassigned');
+check(transposeLayout(blank, 3).fields.at(-1).midi === null, 'Transposition leaves unassigned fields unassigned');
 const allBlank = { ...clone(original), preset: '', arrangement: '', custom: true };
 allBlank.fields.forEach(f => { f.midi = null; });
 check(nextNote(allBlank, 'top') === null && !scalePitches(allBlank).length && audioLayout(allBlank).fields.length === 0, 'A layout without a known scale offers empty fields rather than inventing pitches');
-const shiftedDefaults = transposeLayout(original, 2);
-check(nextNote(shiftedDefaults, 'top') === nextNote(original, 'top') + 2, 'Scale-following additions transpose with the instrument');
+const shiftedDefaults = transposeLayout(original, 3);
+check(nextNote(shiftedDefaults, 'top') === nextNote(original, 'top') + 3, 'Scale-following additions transpose with the instrument');
 const inferredManual = clone(original); inferredManual.fields[1].angle += 0.01;
 check(!canAutoArrange(inferredManual), 'Older custom files with moved or rotated fields are recognized without requiring new metadata');
 const manualFactory = { ...clone(original), manualPlacement: true };
 assert.deepEqual(restoreCurrent(manualFactory), manualFactory); assertions++;
 const minor = findChords(original.fields).find(c => c.plainSymbol === 'Bm');
-assert.deepEqual(chordVoicings(minor, original.fields).map(v => v.notes.map(f => f.midi)), [
-  [47, 50, 54], [59, 62, 66], [71, 74, 78],
+assert.deepEqual(chordArpeggio(minor, original.fields).notes.map(f => f.midi), [
+  47, 50, 54, 59, 62, 66, 71, 74, 78,
 ]); assertions++;
-const major = findChords(original.fields).find(c => c.plainSymbol === 'D');
-const highD = chordVoicings(major, original.fields).find(v => v.rootMidi === 74);
-check(highD.inverted && highD.symbol === 'D/A' && highD.bass.midi === 69, 'A high root with lower accompaniment reports the real inversion');
 const repeatedPitch = { fields: [
   { id: 'high', midi: 74, side: 'top' }, { id: 'low', midi: 47, side: 'bottom' },
   { id: 'top-d', midi: 62, side: 'top' }, { id: 'bottom-d', midi: 62, side: 'bottom' },
@@ -131,20 +129,16 @@ const retuned = transposeLayout({ ...original, a4: 432 }, -2);
 const frequencies = demoFields(retuned, 'all').map(f => retuned.a4 * 2 ** ((f.midi - 69) / 12));
 check(frequencies.every((f, i) => !i || f >= frequencies[i - 1]), 'Demo ordering remains ascending after transposition and concert-pitch changes');
 for (const [profile, delta, expected] of [
-  ['elements-d-kurd-13', -4, 'Elements A♯ Kurd 13'],
-  ['elements-d-kurd-15', -4, 'Elements A♯ Kurd 15'],
-  ['elements-e-amara-15', -6, 'Elements A♯ Amara 15'],
-  ['d-aegean-18', -1, 'C♯ Aegean 18'],
-  ['fis-kurd-22', 1, 'G Kurd 22'],
+  ['d-aegean-18', -2, 'C Aegean 18'],
+  ['fis-kurd-22', 3, 'A Kurd 22'],
   ['b2-aavartan-17', 1, 'C3 Aavartan 17'],
-  ['b3-pygmy-20', -12, 'B2 Pygmy 20'],
-  ['fis2-nordlys-16', -1, 'F2 Nordlys 16'],
+  ['fis2-nordlys-16', 1, 'G2 Nordlys 16'],
 ]) {
   const source = createLayout(PRESETS.find(p => p.profile === profile));
   check(titleFor(transposeLayout(source, delta)) === expected, 'Transpose changes only the complete root-note token, preserving prefixes, octaves, model names, and counts');
   check(titleFor(transposeLayout(transposeLayout(source, delta), -delta)) === source.title, 'Transposing back restores the original title');
 }
-const named = transposeLayout({ ...original, title: 'Elements of my evening' }, 1);
+const named = transposeLayout({ ...original, title: 'Elements of my evening' }, 3);
 check(titleFor(named) === named.title, 'Transpose preserves a renamed instrument title');
 const aegean = createLayout(PRESETS.find(p => p.id === 'ayasa-d-aegean-18'));
 check(aegean.fields.filter(f => f.side === 'top').length === 11 && aegean.fields.filter(f => f.side === 'bottom').length === 7, 'Published D Aegean 18 has eleven top and seven bottom fields');
@@ -184,8 +178,8 @@ const convexPoint = sourceSurface.sample(convex.O[0], convex.O[2], 'top');
 check(convexPoint[1] > convex.py && convexPoint[0] !== convex.O[0], 'A convex cap rises and moves along the tilted field normal');
 const concave = sourceSurface.fields.find(f => f.midi === 57 && f.side === 'top');
 check(sourceSurface.sample(concave.O[0], concave.O[2], 'top')[1] < concave.py, 'A concave cap depresses the plane');
-const sourceRetuned = transposeLayout(aegean, 1); sourceRetuned.a4 = 432;
-check(Math.abs(sampleFor(sourceRetuned, sourceRetuned.fields[0]).rate - 2 ** (1 / 12) * 432 / 440) < 1e-10, 'Recorded previews follow semitone transpose and concert pitch');
+const sourceRetuned = transposeLayout(aegean, 3); sourceRetuned.a4 = 432;
+check(Math.abs(sampleFor(sourceRetuned, sourceRetuned.fields[0]).rate - 2 ** (3 / 12) * 432 / 440) < 1e-10, 'Recorded previews follow supported transposition and concert pitch');
 assert.deepEqual(restoreCurrent(aegean), aegean); assertions++;
 const oldAegean = clone(aegean); oldAegean.title = 'D Aegean'; oldAegean.preset = 'd-aegean-18'; oldAegean.arrangement = 'alternating';
 oldAegean.fields = [{ id: 'n0', midi: 50, side: 'top', x: 0, z: 0, size: 0.26, angle: 0, aspect: 0.82 }];
@@ -208,9 +202,9 @@ for (const side of ['bottom', 'top']) {
   growing.fields.push(added);
 }
 assert.deepEqual(decodeLayout(encodeLayout(growing)), growing); assertions++;
-const raised = transposeLayout(original, 1);
-check(raised.fields.every((f, i) => f.midi === original.fields[i].midi + 1), 'Every note transposes together');
-assert.deepEqual(transposeLayout(raised, -1), original); assertions++;
+const raised = transposeLayout(original, 3);
+check(raised.fields.every((f, i) => f.midi === original.fields[i].midi + 3), 'Every note transposes together');
+assert.deepEqual(transposeLayout(raised, -3), original); assertions++;
 check(original.fields[0].midi === 50, 'Transpose does not mutate the original');
 check(!fits(original, { id: 'new', side: 'top', size: 0.125 }, 0, 0), 'Cannot add a field over the ding');
 check(!fits(original, { id: 'new', side: 'bottom', size: 0.125 }, 0, 0), 'Bottom sound port is protected');
@@ -260,4 +254,57 @@ assert.throws(() => transposeLayout(original, 100)); assertions++;
 assert.throws(() => transposeLayout(original, 0.5)); assertions++;
 assert.throws(() => decodeLayout('%%%')); assertions++;
 assert.throws(() => decodeLayout('a'.repeat(24001))); assertions++;
+
+for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+  if (midi === 70) { check(!allowedNote(midi), 'B♭4 is excluded'); continue; }
+  const dimensions = noteDimensions(midi);
+  check(dimensions?.tonefield.length === 2 && dimensions.dimple.length === 2, 'Every supported pitch has dimensions');
+  const field = sizeForNote(original, { id: 'sizing', midi, side: 'top', x: 0.4, z: 0.4, angle: 0 });
+  check(Math.abs(field.size * 530 - dimensions.tonefield[1]) < 1e-8
+    && Math.abs(field.size * field.aspect * 530 - dimensions.tonefield[0]) < 1e-8, 'Tonefield dimensions match the specification in millimetres');
+  const surface = new HandpanSurface({ ...original, fields: [field] }), cap = surface.fields[0].caps[0];
+  check(Math.abs(cap.Ru * 530 - dimensions.dimple[0]) < 1e-8
+    && Math.abs(cap.Rv * 530 - dimensions.dimple[1]) < 1e-8, 'Rendered dimple dimensions match both supplied axes');
+  if (midi > 76) check(field.aspect === 1 && field.shape === 'pure', 'Every pitch above E5 is circular and pure');
+  const radial = Math.atan2(field.z, field.x);
+  check(Math.abs(field.angle - radial - (midi >= 59 ? -Math.PI / 2 : 0)) < 1e-8, 'New notes use the correct pitch-dependent rim orientation');
+  const movedAngle = dragAngle({ ...field, angle: field.angle + 0.17 }, -0.5, 0.3);
+  check(Math.abs(Math.sin(2 * (movedAngle - Math.atan2(0.3, -0.5)))) < 1e-8, 'Dragging snaps to and follows a rim-parallel or perpendicular axis');
+}
+assert.deepEqual(noteDimensions(41).tonefield, [202, 225]); assertions++;
+assert.deepEqual(noteDimensions(76).tonefield, [60, 90]); assertions++;
+assert.deepEqual(noteDimensions(77).tonefield, [70, 70]); assertions++;
+check(noteDimensions(48).source.includes('provisional') && noteDimensions(80).source.includes('provisional'), 'Missing C3 and G♯5 dimensions use attributed existing Ayasa measurements');
+check(!allowedNote(43, 'bottom') && allowedNote(44, 'bottom') && !allowedNote(40) && !allowedNote(89), 'Top and bottom pitch boundaries are enforced');
+check(stepNote(69, 1) === 71 && stepNote(71, -1) === 69, 'Pitch steppers skip B♭4 in both directions');
+check(nextTranspose(original, 1) === 3 && nextTranspose(original, -1) === -2, 'Whole-instrument transposition skips keys containing B♭4');
+check(raised.fields.filter(f => f.midi > 76).every(f => f.shape === 'pure' && f.aspect === 1), 'Transposition also enforces circular high fields');
+assert.deepEqual(decodeLayout(encodeLayout(raised)), raised); assertions++;
+const importedHigh = clone(original);
+const highField = importedHigh.fields.find(f => f.midi > 76);
+Object.assign(highField, { aspect: 0.82, shape: 'dimple' });
+const migratedHigh = validateLayout(importedHigh).fields.find(f => f.id === highField.id);
+check(migratedHigh.aspect === 1 && migratedHigh.shape === 'pure', 'Older imported high fields are normalized to circular pure geometry');
+const invalidCache = clone(raised);
+invalidCache.fields.find(f => f.lowerGeometry).lowerGeometry.size = NaN;
+assert.throws(() => validateLayout(invalidCache)); assertions++;
+assert.throws(() => transposeLayout(original, 1)); assertions++;
+const lowBottom = addToneField(emptyBottom, { id: 'real-c3', midi: 48, side: 'bottom' });
+check(lowBottom && lowBottom.fields.at(-1).size > 0.3 && lowBottom.fields.at(-1).shape === 'dome', 'C3 additions use a realistic large oval field');
+assert.deepEqual(decodeLayout(encodeLayout(lowBottom)), lowBottom); assertions++;
+check(addToneField(emptyBottom, { id: 'too-low', midi: 43, side: 'bottom' }) === null, 'Model additions reject notes below G♯2 on the bottom');
+for (const preset of PRESETS) {
+  const stock = createLayout(preset), position2 = setPlayingPosition(stock, 2);
+  check(position2.fields.every(f => fits(position2, f)) && canAutoArrange(position2), `${preset.title}: Position 2 fits and preserves automatic placement`);
+  check(position2.fields.filter(f => f.midi > 76).every(f => f.shape === 'pure' && f.aspect === 1), 'Factory high notes are circular pure fields');
+  assert.deepEqual(decodeLayout(encodeLayout(position2)), position2); assertions++;
+  const roundtrip = setPlayingPosition(position2, 1);
+  check(stock.fields.filter(f => f.side === 'bottom').every(f => {
+    const restored = roundtrip.fields.find(g => g.id === f.id);
+    return Math.hypot(restored.x - f.x, restored.z - f.z) < 1e-8 && Math.abs(restored.angle - f.angle) < 1e-8;
+  }), 'Position changes preserve and restore underside geometry');
+}
+const duplicateChord = { plainSymbol: 'Dm', root: 2, pcs: [2, 5, 9] };
+const equalFields = [{ id: 'd-top', midi: 62 }, { id: 'd-bottom', midi: 62 }, { id: 'f', midi: 65 }, { id: 'a', midi: 69 }, { id: 'blank', midi: null }, { id: 'g', midi: 67 }];
+assert.deepEqual(chordArpeggio(duplicateChord, equalFields).notes.map(f => f.id), ['d-top', 'd-bottom', 'f', 'a']); assertions++;
 console.log(`Elaia model: ${assertions} assertions passed across ${PRESETS.length} presets, custom layouts, concert pitch, transpose, sharing, placement, and malformed inputs.`);

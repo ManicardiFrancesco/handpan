@@ -12,10 +12,12 @@ follow **Elaia 3D player** from the synthesizer. Elaia adds a dedicated,
 responsive performance view, procedural WebGL metal lighting, 15 Ayasa presets
 with measured shell and field geometry, playable notes/chords, and an advanced
 editor for both shells. Change concert
-pitch (440/432 Hz), transpose, edit pitches, move/resize/rotate/add/remove fields,
+pitch (440/432 Hz), transpose beside the instrument, edit pitches, move/rotate/add/remove fields,
 undo/redo, place notes automatically and drag them directly, save instruments
 locally with recreation URLs, share self-contained layout links, and
-import/export JSON. Published Ayasa preview recordings provide temporary sound;
+import/export JSON. Elaia's supplied note/dimple dimensions, F2–E6 limits,
+two playing positions, zenith views, bottom-note overlay, and all-register chord
+arpeggios are implemented in the dedicated player. Published Ayasa preview recordings provide temporary sound;
 the physical-modeling engine fills in when previews are unavailable. There is
 no build step or runtime package installation.
 

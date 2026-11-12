@@ -23,7 +23,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
   };
   const labelsClear = page => page.evaluate(() => {
     const stage = document.getElementById('stage').getBoundingClientRect();
-    const controls = [...document.querySelectorAll('.instrument-heading, .restore-original, .edit-banner, .view-controls, .stage-hint')]
+    const controls = [...document.querySelectorAll('.instrument-heading, .restore-original, .edit-banner, .stage-tools, .view-controls, .stage-hint')]
       .filter(el => el.getClientRects().length).map(el => el.getBoundingClientRect());
     return [...document.querySelectorAll('.field-label:not([hidden])')].every(label => {
       const r = label.getBoundingClientRect();
@@ -86,13 +86,25 @@ const check = (value, message) => { assert.ok(value, message); count++; };
   }, camera);
   const chordAligned = (page, id) => page.evaluate(id => {
     const r = __elaia.renderer, index = r.layout.fields.findIndex(f => f.id === id);
+    const time = performance.now() / 1000, hits = r.hits.slice();
+    r.dirty = true; r.draw(time);
     const f = r.layout.fields[index], p = r.project(r.surfaceModel.sample(f.x, f.z, f.side).slice(0, 3));
-    const pixels = new Uint8Array(9 * 9 * 4);
     const x = Math.round(p.x * r.canvas.width / r.width) - 4;
     const y = Math.round((r.height - p.y) * r.canvas.height / r.height) - 4;
-    r.gl.readPixels(x, y, 9, 9, r.gl.RGBA, r.gl.UNSIGNED_BYTE, pixels);
-    return r.hits.some((v, i) => i % 4 === 0 && v === index + 1)
-      && pixels.some((v, i) => i % 4 === 2 && v > pixels[i - 2] + 10);
+    const pixels = () => {
+      const data = new Uint8Array(9 * 9 * 4);
+      r.gl.readPixels(x, y, 9, 9, r.gl.RGBA, r.gl.UNSIGNED_BYTE, data);
+      return data;
+    };
+    const after = pixels();
+    // Compare only this bottom voice's contribution. A faded blue pulse can
+    // still leave polished gold with more red than blue in absolute RGB.
+    r.hits.forEach((v, i) => { if (i % 4 === 0 && v === index + 1) r.hits[i] = -1; });
+    r.dirty = true; r.draw(time);
+    const before = pixels();
+    r.hits.set(hits); r.dirty = true; r.draw(time);
+    return hits.some((v, i) => i % 4 === 0 && v === index + 1)
+      && after.some((v, i) => i % 4 === 2 && v - before[i] > 2 && after[i - 2] - before[i - 2] < -2);
   }, id);
   try {
     const { context, page } = await open({ viewport: { width: 1440, height: 900 } });
@@ -102,7 +114,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     check(partial.centerVisible && partial.yellow > 500 && partial.blue > 100 && partial.warmPreserved,
       'A partly visible bottom note shows yellow and blue together even when its centre faces the camera');
     const hitIndex = partial.hitIndex;
-    for (const pitch of [0.38, 0.4]) {
+    for (const pitch of [0.4, 0.42]) {
       partial = await strikePixels(page, { ...partialCamera, pitch, rotate: true });
       check(!partial.centerVisible && partial.yellow > 500 && partial.blue > 100 && partial.warmPreserved && partial.hitIndex === hitIndex,
         `Rotating a sounding note keeps both colours without restarting or switching the whole highlight: ${JSON.stringify(partial)}`);
@@ -111,15 +123,15 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     check(visible.yellow > 500 && visible.blue < visible.changed * 0.01 && visible.warmPreserved, 'Exposing the note retains its warm glow');
     await page.evaluate(() => __elaia.damp());
     const partialChord = await page.evaluate(() => {
-      for (const chord of __elaia.chords) for (const voicing of chord.voicings) {
-        if (voicing.notes.some(n => n.id === 'n12')) {
-          return { symbol: chord.plainSymbol, root: voicing.rootMidi, ids: voicing.notes.map(n => n.id) };
+      for (const chord of __elaia.chords) {
+        if (chord.notes.some(n => n.id === 'n12')) {
+          return { symbol: chord.plainSymbol, ids: chord.notes.map(n => n.id) };
         }
       }
     });
     assert.ok(partialChord, 'The fixture has a chord containing the partly visible bottom note');
-    await page.click(`.chord-chip[data-chord="${partialChord.symbol}"][data-root-midi="${partialChord.root}"]`);
-    await page.waitForFunction(ids => ids.every(id => __elaia.noteTimers.has(id)), partialChord.ids);
+    await page.click(`.chord-chip[data-chord="${partialChord.symbol}"]`);
+    await page.waitForFunction(ids => ids.every(id => __elaia.renderer.hits.some((v, i) => i % 4 === 0 && v === __elaia.layout.fields.findIndex(f => f.id === id) + 1)), partialChord.ids);
     const partialVoices = await strikePixels(page, { ...partialCamera, rotate: true });
     check(partialVoices.yellow > 500 && partialVoices.blue > 100 && partialVoices.warmPreserved,
       'An actual chord keeps visible voices yellow while the partly hidden bottom voice glows blue');
@@ -128,7 +140,8 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       const { clone, transposeLayout } = await import(new URL('model.mjs', location.href).href);
       const { addToneField } = await import(new URL('arrangement.mjs', location.href).href);
       const layout = clone(__elaia.layout); layout.fields[0].midi = 69; layout.a4 = 432;
-      __elaia.commit(addToneField(transposeLayout(layout, 1), { id: 'ray-regression', midi: 61, side: 'bottom' }));
+      layout.fields = layout.fields.filter(f => f.id !== 'n11');
+      __elaia.commit(addToneField(transposeLayout(layout, 3), { id: 'ray-regression', midi: 61, side: 'bottom' }));
       __elaia.setAdvanced(true); __elaia.setView('bottom');
       const r = __elaia.renderer, results = [];
       for (const pitch of [-1.12, -1.1189216475971744, -1.1185, -1.1, -1]) {
@@ -178,7 +191,7 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     await page.waitForFunction(() => document.querySelector('.field-label[data-id="n0"]').textContent === 'D♯3');
     check(await page.locator('.field-label[data-id="n0"]').textContent() === 'D♯3', 'Retuning updates the label text and measured size');
     await page.click('#restore-original');
-    await page.click('#play-mode-btn');
+    await page.click('#advanced-btn');
     await page.waitForFunction(() => !document.querySelector('.field-label'));
     check(await page.locator('.field-label').count() === 0, 'Play mode keeps labels hidden without keyboard mode');
     await page.click('#keyboard-btn');
@@ -213,20 +226,29 @@ const check = (value, message) => { assert.ok(value, message); count++; };
       const exposed = await strikePixels(page, { side, pitch: side === 'top' ? 1.32 : -1.32, yaw: 1.2, zoom: 1.4, rotate: true });
       check(exposed.yellow > 80 && exposed.blue < exposed.changed * 0.01 && exposed.warmPreserved, 'Turning toward the struck shell retains warm strike pixels');
     }
-    await page.evaluate(() => {
-      __elaia.damp(); __elaia.setView('top'); const r = __elaia.renderer; r.pitch = r.targetPitch = 1.12; r.dirty = true; r.draw(performance.now() / 1000);
+    await page.evaluate(async () => {
+      // The label fixture has no chord ending on a bottom note. Restore the
+      // mixed-shell preset to inspect a fresh final strike of the arpeggio.
+      const { createLayout, PRESETS } = await import(new URL('model.mjs', location.href).href);
+      __elaia.damp(); __elaia.commit(createLayout(PRESETS[0]), { custom: false });
+      __elaia.setView('top'); const r = __elaia.renderer;
+      r.pitch = r.targetPitch = 1.12; r.setZoom(1); r.draw(performance.now() / 1000);
     });
     const chord = await page.evaluate(() => {
-      for (const chord of __elaia.chords) for (const voicing of chord.voicings) {
-        const hidden = voicing.notes.find(n => __elaia.layout.fields.find(f => f.id === n.id).side === 'bottom');
-        if (hidden && voicing.notes.some(n => __elaia.layout.fields.find(f => f.id === n.id).side === 'top')) {
-          return { symbol: chord.plainSymbol, root: voicing.rootMidi, hidden: hidden.id, ids: voicing.notes.map(n => n.id) };
+      for (const chord of __elaia.chords) {
+        const hidden = chord.notes.at(-1);
+        if (__elaia.layout.fields.find(f => f.id === hidden?.id)?.side !== 'bottom') continue;
+        const p = __elaia.renderer.positions.find(p => p.field.id === hidden.id);
+        const cover = __elaia.renderer.pick(p.x, p.y)?.field.id;
+        if (chord.notes.some(n => n.id === cover)) continue;
+        if (chord.notes.some(n => __elaia.layout.fields.find(f => f.id === n.id).side === 'top')) {
+          return { symbol: chord.plainSymbol, hidden: hidden.id, ids: chord.notes.map(n => n.id) };
         }
       }
     });
     assert.ok(chord, 'The fixture has a mixed-shell chord');
-    await page.click(`.chord-chip[data-chord="${chord.symbol}"][data-root-midi="${chord.root}"]`);
-    await page.waitForFunction(ids => ids.every(id => __elaia.noteTimers.has(id)), chord.ids);
+    await page.click(`.chord-chip[data-chord="${chord.symbol}"]`);
+    await page.waitForFunction(ids => ids.every(id => __elaia.renderer.hits.some((v, i) => i % 4 === 0 && v === __elaia.layout.fields.findIndex(f => f.id === id) + 1)), chord.ids);
     await page.waitForFunction(id => {
       const r = __elaia.renderer, index = __elaia.layout.fields.findIndex(f => f.id === id);
       return r.hits.some((v, i) => i % 4 === 0 && v === index + 1);
@@ -255,23 +277,25 @@ const check = (value, message) => { assert.ok(value, message); count++; };
         r.pitch = r.targetPitch = 1.12; r.yaw = -0.12; r.setZoom(1.3);
       });
       await mobile.waitForFunction(() => !__elaia.renderer.dirty);
-      await mobile.waitForFunction(() => [...document.querySelectorAll('.field-label:not([hidden])')].some(el => {
-        const y = parseFloat(el.style.top); return y < 100 || y > __elaia.renderer.height - 115;
-      }));
+      await mobile.waitForFunction(() => document.querySelectorAll('.field-label:not([hidden])').length >= 6);
       check(await labelsClear(mobile), `${width}px mobile labels use available space without covering controls`);
       check(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth && __elaia.renderer.gl.getError() === 0), 'Phone layouts stay bounded with no GL errors');
       await mobile.screenshot({ path: path.join(SHOTS, `after-labels-${width}px.png`) });
     }
     await mobile.setViewportSize({ width: 390, height: 844 });
-    await mobile.locator('#play-mode-btn').tap();
+    await mobile.locator('#advanced-btn').tap();
     await mobile.locator('[data-play-tab="chords"]').tap();
     const mobileChord = await mobile.evaluate(() => {
-      for (const chord of __elaia.chords) for (const voicing of chord.voicings) {
-        const hidden = voicing.notes.find(n => __elaia.layout.fields.find(f => f.id === n.id).side === 'bottom');
-        if (hidden) return { symbol: chord.plainSymbol, root: voicing.rootMidi, hidden: hidden.id };
+      for (const chord of __elaia.chords) {
+        const hidden = chord.notes.at(-1);
+        if (__elaia.layout.fields.find(f => f.id === hidden?.id)?.side !== 'bottom') continue;
+        const p = __elaia.renderer.positions.find(p => p.field.id === hidden.id);
+        const cover = __elaia.renderer.pick(p.x, p.y)?.field.id;
+        if (!chord.notes.some(n => n.id === cover)) return { symbol: chord.plainSymbol, hidden: hidden.id };
       }
     });
-    await mobile.locator(`.chord-chip[data-chord="${mobileChord.symbol}"][data-root-midi="${mobileChord.root}"]`).tap();
+    assert.ok(mobileChord, 'The phone fixture has a chord whose final bottom voice is clear of a played top field');
+    await mobile.locator(`.chord-chip[data-chord="${mobileChord.symbol}"]`).tap();
     await mobile.waitForFunction(id => {
       const r = __elaia.renderer, index = __elaia.layout.fields.findIndex(f => f.id === id);
       return r.hits.some((v, i) => i % 4 === 0 && v === index + 1);

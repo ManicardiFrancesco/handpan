@@ -91,7 +91,7 @@ export class HandpanSurface {
   }
 
   updateFields(layout) {
-    const changes = [], keys = ['x', 'z', 'size', 'angle', 'aspect', 'geometry'];
+    const changes = [], keys = ['x', 'z', 'size', 'angle', 'aspect', 'geometry', 'dimpleSize', 'dimpleAspect'];
     layout.fields.forEach((field, index) => {
       const before = this.fields[index], shape = fieldShape(field, layout);
       if (shape === before.shape && keys.every(key => field[key] === before[key])) return;
@@ -110,7 +110,7 @@ export class HandpanSurface {
   }
 
   prepare(f) {
-    const source = fieldGeometry(f.geometry), shape = fieldShape(f);
+    const source = f.dimpleSize === undefined ? fieldGeometry(f.geometry) : null, shape = fieldShape(f);
     const base = this.base(f.x, f.z, f.side), direction = f.side === 'top' ? 1 : -1;
     const result = { ...f, cos: Math.cos(f.angle), sin: Math.sin(f.angle), caps: [],
       py: base[0] - direction * 0.015, px: base[1], pz: base[2], shape };
@@ -156,7 +156,8 @@ export class HandpanSurface {
       result.U = unit([result.cos, result.px * result.cos + result.pz * result.sin, result.sin]);
       result.V = cross(result.N, result.U); result.O = [f.x, result.py, f.z];
       result.shoulder = 0.02;
-      result.caps.push(capTable(f.size * 0.28, f.size * (f.aspect ?? 0.82) * 0.28,
+      const inner = f.dimpleSize ?? f.size * 0.28;
+      result.caps.push(capTable(inner * (f.dimpleAspect ?? f.aspect ?? 0.82), inner,
         Math.min(0.028, f.size * 0.13), 0, shape !== 'dome'));
     }
     result.sign = direction * (shape === 'dome' ? 1 : -1);

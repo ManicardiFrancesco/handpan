@@ -50,7 +50,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(boot.notes === 18 && boot.renderer && boot.triangles > 1000, 'Default instrument renders real WebGL geometry');
     check(!boot.started, 'Audio respects browser gesture requirements');
     check(!boot.overflow && boot.picks && boot.glError === 0, 'No overflow; every top field picks itself; no GL errors');
-    check(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1 && getComputedStyle(document.getElementById('side-panel')).overflowY === 'auto'), 'Desktop chord octaves scroll inside the panel while the instrument and dock stay in one viewport');
+    check(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1 && getComputedStyle(document.getElementById('side-panel')).overflowY === 'auto'), 'Desktop chord arpeggios scroll inside the panel while the instrument and dock stay in one viewport');
     await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true });
     await page.click('#scale-btn');
     check(await page.locator('.scale-option').count() === 15 && await page.locator('.scale-option').filter({ hasText: 'D Aegean 18' }).count() === 1, 'The library exposes only fifteen Ayasa models and one D Aegean 18');
@@ -101,14 +101,12 @@ function check(value, message) { assert.ok(value, message); count++; }
     const resetPlayed = () => page.evaluate(() => { window.playedFields = []; });
     const played = () => page.evaluate(() => playedFields);
     const waitPlayed = n => page.waitForFunction(n => playedFields.length >= n, n);
-    check(await page.locator('.chord-chip[data-chord="Bm"]').count() === 3, 'B minor exposes all three available root octaves');
-    for (const [root, pitches] of [[47, [47, 50, 54]], [59, [59, 62, 66]], [71, [71, 74, 78]]]) {
-      await resetPlayed();
-      await page.click(`.chord-chip[data-chord="Bm"][data-root-midi="${root}"]`);
-      await waitPlayed(3);
-      assert.deepEqual((await played()).map(f => f.midi), pitches); count++;
-    }
-    check((await page.textContent('#chord-detail')).includes('B4') && (await page.textContent('#chord-detail')).includes('F♯5'), 'Chord feedback names the notes in the selected register');
+    check(await page.locator('.chord-chip[data-chord="Bm"]').count() === 1, 'B minor has one compact all-register chord button');
+    await resetPlayed();
+    await page.click('.chord-chip[data-chord="Bm"]');
+    await waitPlayed(9);
+    assert.deepEqual((await played()).map(f => f.midi), [47, 50, 54, 59, 62, 66, 71, 74, 78]); count++;
+    check((await page.textContent('#chord-detail')).includes('B2') && (await page.textContent('#chord-detail')).includes('F♯5'), 'Chord feedback names every played register');
     const demoLayout = await layout();
     for (const side of ['top', 'bottom', 'all']) {
       await resetPlayed();
@@ -222,7 +220,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     const beforeTranspose = await layout();
     await page.click('#transpose-up');
     const transposed = await layout();
-    check(transposed.fields.every((f, i) => f.midi === beforeTranspose.fields[i].midi + 1), 'Transpose changes all notes by one semitone');
+    check(transposed.fields.every((f, i) => f.midi === beforeTranspose.fields[i].midi + 3), 'Transpose shifts every note together and skips keys containing B flat 4');
     await page.click('#undo-btn');
     assert.deepEqual(await layout(), beforeTranspose); count++;
     await page.click('#redo-btn');
@@ -233,14 +231,14 @@ function check(value, message) { assert.ok(value, message); count++; }
     await page.click('[data-view="bottom"]');
     await waitView();
     await page.click('[data-tool="add"]');
-    await page.selectOption('#add-note', '61');
+    await page.selectOption('#add-note', '84');
     await page.click('#place-note-btn');
     let afterAdd = await layout();
     const added = afterAdd.fields.at(-1);
-    check(afterAdd.fields.length === 19 && added?.midi === 61, 'Add note immediately places the requested pitch on the chosen shell');
+    check(afterAdd.fields.length === 19 && added?.midi === 84, 'Add note immediately places the requested pitch on the chosen shell');
     check(Math.hypot(added.x, added.z) > 0.4, 'Automatic placement finds a sensible shell position');
     check(await page.locator('#add-settings').isVisible() && await page.locator('[data-tool="add"]').getAttribute('aria-pressed') === 'true', 'Adding stays in the repeat-add flow');
-    check(await page.inputValue('#add-note') === '62' && (await page.textContent('#place-note-btn')).includes('D4'), 'The next add is already set to the next scale pitch');
+    check(await page.inputValue('#add-note') === '86' && (await page.textContent('#place-note-btn')).includes('D6'), 'The next add is already set to the next scale pitch');
     await page.click('#cancel-add');
     await page.waitForFunction(() => __elaia.renderer.positions.length === __elaia.layout.fields.length);
     const bottomPick = await page.evaluate(() => {
@@ -256,9 +254,10 @@ function check(value, message) { assert.ok(value, message); count++; }
       const r = __elaia.renderer, rect = r.canvas.getBoundingClientRect();
       const start = r.positions.find(p => p.field.id === id);
       const { fits } = await import(new URL('model.mjs', location.href).href);
+      const { dragAngle } = await import(new URL('tonefields.mjs', location.href).href);
       const field = __elaia.layout.fields.find(f => f.id === id);
       const slots = [0.42, 0.55, 0.68, 0.8].flatMap(rad => Array.from({ length: 64 }, (_, i) => [Math.cos(i / 64 * Math.PI * 2) * rad, Math.sin(i / 64 * Math.PI * 2) * rad]));
-      const [x, z] = slots.find(([x, z]) => Math.hypot(x - field.x, z - field.z) > 0.2 && fits(__elaia.layout, field, x, z));
+      const [x, z] = slots.find(([x, z]) => Math.hypot(x - field.x, z - field.z) > 0.2 && fits(__elaia.layout, { ...field, angle: dragAngle(field, x, z) }, x, z));
       const end = r.project([x, r.heightAt(x, z, 'bottom'), z]);
       return { sx: start.x + rect.x, sy: start.y + rect.y, ex: end.x + rect.x, ey: end.y + rect.y };
     }, id);
@@ -334,26 +333,25 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(await page.evaluate(before => __elaia.history.length === before.history
       && JSON.stringify(__elaia.future) === before.future && localStorage.getItem('elaia.current.v1') === before.saved,
     cancelBaseline), 'Cancelling a drag preserves undo, redo, and saved state');
+    await page.click('.note-chip[data-id="n0"]');
     await page.evaluate(() => {
-      const input = document.getElementById('field-size');
+      const input = document.getElementById('field-angle');
       for (let i = 0; i < 2; i++) { input.stepDown(); input.dispatchEvent(new Event('input')); }
       input.dispatchEvent(new Event('change'));
     });
     check(await page.evaluate(before => __elaia.history.length === before.history + 1
       && __elaia.future.length === 0 && __elaia.layout.manualPlacement
       && localStorage.getItem('elaia.current.v1') === JSON.stringify(__elaia.layout),
-    cancelBaseline), 'A multi-step size gesture creates one undo entry, clears redo, and saves the final layout');
+    cancelBaseline), 'A multi-step rotation gesture creates one undo entry, clears redo, and saves the final layout');
     await page.click('#undo-btn');
-    check(JSON.stringify(await layout()) === cancelBaseline.layout, 'Undo restores the entire layout before a size gesture');
+    check(JSON.stringify(await layout()) === cancelBaseline.layout, 'Undo restores the entire layout before a rotation gesture');
     await page.click(`.note-chip[data-id="${added.id}"]`);
-    await page.selectOption('#field-note', '64');
+    await page.selectOption('#field-note', '83');
     check(await page.evaluate(id => {
       const index = __elaia.audio.indices.get(id);
-      return __elaia.audio.engine.inst.notes[index].midi === 64 && __elaia.audio.engine.inst.notes[index].bottom;
+      return __elaia.audio.engine.inst.notes[index].midi === 83 && __elaia.audio.engine.inst.notes[index].bottom;
     }, added.id), 'Bottom-note editing preserves audio identity');
-    await page.click('[data-side="top"]');
-    check((await layout()).fields.find(f => f.id === added.id).side === 'top', 'A field can move to the other shell');
-    await page.click('[data-side="bottom"]'); await waitView();
+    check(await page.locator('[data-side], #field-size').count() === 0, 'Shell-transfer and size controls are removed');
     await page.click('#remove-field');
     check((await layout()).fields.length === 18, 'A tone field can be removed');
     await page.click('#undo-btn');
@@ -453,7 +451,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(await mobile.locator('#bottom-notes').isVisible() && await mobile.locator('#top-notes').isHidden(), 'Phone note palette follows the viewed shell');
     await mobile.click('#play-chords-tab');
     check(await mobile.locator('#chords').isVisible() && await mobile.locator('#bottom-notes').isHidden(), 'Phone chords have a separate compact palette');
-    check(await mobile.locator('.chord-chip[data-chord="Bm"]').count() === 3 && await mobile.locator('.chord-chip').first().evaluate(el => el.getBoundingClientRect().height >= 44), 'Phone chord octaves remain available with finger-sized targets');
+    check(await mobile.locator('.chord-chip[data-chord="Bm"]').count() === 1 && await mobile.locator('.chord-chip').first().evaluate(el => el.getBoundingClientRect().height >= 44), 'Phone chord arpeggios remain available with finger-sized targets');
     await mobile.click('#play-notes-tab');
     check(await mobile.locator('#bottom-notes').isVisible(), 'Returning to notes remembers the current shell');
     await mobile.evaluate(() => {
@@ -590,7 +588,7 @@ function check(value, message) { assert.ok(value, message); count++; }
     check(await fallback.evaluate(() => __elaia.audio.engine.inst.nNotes > 0), 'Audio remains playable when 3D is unavailable');
     await fallback.close();
     assert.deepEqual(errors, []); count++;
-    console.log(`Elaia browser: ${count} checks passed — real 3D/audio, chord octaves, ordered demos/cancellation, shell-tap output, 432 Hz spectrum, editing, storage/sharing, keyboard, touch, mobile, and graphics fallback.`);
+    console.log(`Elaia browser: ${count} checks passed — real 3D/audio, chord arpeggios, ordered demos/cancellation, shell-tap output, 432 Hz spectrum, editing, storage/sharing, keyboard, touch, mobile, and graphics fallback.`);
     console.log('Screenshots: ' + ARTIFACTS);
   } catch (error) {
     if (errors.length) console.error('Captured browser errors:', errors);

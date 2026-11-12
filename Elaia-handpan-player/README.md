@@ -37,15 +37,19 @@ included in the published site; other instruments retain their existing tuning.
 
 - Tap a 3D tone field or note button; multiple fingers can play together.
 - Tap bare steel for a finger slap. Force, position, and shell affect its sound.
-- Drag to orbit, scroll or pinch to zoom; choose Top or Bottom to
-  flip the instrument. Exposed fields from either shell remain playable
+- Drag to orbit, scroll or pinch to zoom; Top and Bottom give exact zenith views.
+  Pos 1 places one outer field toward the player; Pos 2 offsets the outer ring
+  by half its first interval, retaining the ding and inner cluster. Both shells
+  turn together. The eye button shows/hides bottom-note outlines and labels
+  directly through the top shell, following the actual 3D projection. Exposed fields from either shell remain playable
   in angled views; the nearest visible surface determines the hit.
 - Choose one of 15 Ayasa instruments with measured field positions,
   varied sizes, convex/concave caps, and 13–22 notes across both shells.
   D Aegean 18 is the default. The earlier generated presets are removed.
-- Each chord offers its available root octaves. For example, D Aegean 18
-  offers B minor at B2, B3, and B4. Actual notes appear after playing;
-  a high root with lower accompaniment is labeled with its inversion.
+- Each chord has one button. It arpeggiates every matching physical field
+  across both shells and all octaves, in ascending order, at 180 ms per note.
+  Equal-pitch fields on different shells both play. The complete sequence
+  appears below; manual playing, damping, or another sequence cancels it.
 - Played fields glow warm yellow where visible, while their hidden portions
   produce a soft blue pulse through the nearer steel. Both appear together
   for partly visible notes, including when the field's own curved shell hides
@@ -62,14 +66,20 @@ included in the published site; other instruments retain their existing tuning.
 
 ## Editing
 
-Customize is the advanced mode. Layout contains direct field editing;
-Sound & tuning contains 440/432 Hz, whole-instrument semitone transposition,
-volume, ambience, and finish. The instrument remains
+Customize is a single on/off toggle; the separate Play button is removed. Layout contains direct field editing;
+Sound & tuning contains 440/432 Hz, volume, ambience, and finish.
+Transpose remains beside the instrument in both modes. Its arrows skip
+whole-instrument keys containing the excluded B♭4 or notes outside the allowed
+range. Existing physical geometry stays in place; a field crossing above E5
+becomes circular and pure, and its previous lower-register geometry is restored
+when it crosses back. This state is retained in saved/shared layouts. The instrument remains
 playable in Sound & tuning so changes can be auditioned immediately.
 
 Select a field on the model or note list to set its pitch, step by a semitone,
-audition it, move it to the other shell, or remove it. Field geometry discloses
-convex/concave shape, size, and rotation. The desktop inspector scrolls
+audition it, or remove it. Shell membership is displayed without a transfer control.
+Field geometry discloses convex/concave shape, read-only tonefield/dimple
+dimensions, and rotation. There is no size slider. New and retuned fields use
+the supplied Elaia dimensions; notes above E5 are circular pure tones. The desktop inspector scrolls
 independently; on phones a single editor sheet sits below the instrument.
 The header's + button opens Add notes; undo, redo, and Save remain in that header.
 In Play, the phone note palette follows the viewed shell; Chords has its own tab.
@@ -82,20 +92,24 @@ Follow scale to repeat a chosen pitch. Unassigned places silent fields whose
 pitches can be chosen later; it is also the default when a custom document
 has no identifiable scale.
 
-Vacant published top positions are filled with their original geometry.
+Vacant published positions retain their centres and receive the specified
+pitch dimensions, provided the full-size field fits.
 Once those positions are occupied, the inner mutant cluster grows from one
 centred field to a symmetric pair, then three-, four-, and five-field wedges.
 The cluster rearranges when fields are added or removed; outer fields retain
-their measured positions. Inner sizes retain their proportions and reduce
-only as needed to fit. A manual drag, resize, rotation, or shell change
-takes over the layout: subsequent additions use free space and leave existing
+their measured positions. Inner fields retain their full physical dimensions. An addition is rejected
+when it cannot fit; the player never shrinks it to force placement.
+A manual drag or rotation takes over the layout: subsequent additions use free space and leave existing
 fields untouched. Undo restores automatic placement. Placement mode and
 automatic slot metadata survive saving, sharing, and reloading.
 
-Drag a newly added field to adjust it. Placement
+Drag a newly added field to adjust it. Elliptical fields stay parallel or
+perpendicular to the rim while moving. New G♯2–B♭3 fields have tangential major
+axes; B3–E5 have radial major axes. Pitch changes apply the new dimensions
+atomically and are rejected if the larger field has insufficient room. Placement
 reserves room around other fields, the rolled rim, and the bottom sound port.
 The added field stays selected. Layouts can contain 1–48 fields; assigned
-pitches use the F♯0–C7 range. Unassigned fields are excluded from recorded
+pitches use F2–E6, excluding B♭4. Bottom notes start at G♯2. Unassigned fields are excluded from recorded
 audio, chords, and demos.
 
 Original appears beside the instrument heading after customization or
@@ -107,7 +121,7 @@ Edits, tuning, removal, preset changes, and dragging support 50 levels of
 undo/redo; one slider or drag gesture creates one history entry. Ctrl/Cmd+Z
 undoes, Ctrl/Cmd+Shift+Z redoes, and Escape leaves editing.
 
-Dragging and size/rotation changes retain the full mesh and normal-map
+Dragging and rotation changes retain the full mesh and normal-map
 resolution. Only the old/new field regions are resampled and uploaded.
 Stationary regions keep their baked detail, and the updated normal map is
 reused on release. Local cap tessellation is refreshed when the gesture ends.
@@ -150,7 +164,7 @@ model definitions:
 - [D Aegean 18 definition](https://ayasainstruments.com/cdn/shop/t/4/assets/d-aegean-18.model.json)
 - [F♯ Low Pygmy 21 definition](https://ayasainstruments.com/cdn/shop/t/4/assets/fis-low-pygmy-21.model.json)
 
-The 265 fields retain pitches, shell membership, centres, outer/inner contours,
+The 265 source fields retain pitches, shell membership, centres, outer/inner contours,
 axes, type/drawn metadata, field planes and frames, convex tier radii/heights,
 and concave dimple radii/depths. Source shell profiles determine the body.
 Elaia narrows the gu mouth to 18% of the shell radius (a 95.4 mm opening on a
@@ -165,7 +179,10 @@ float32 precision. Rounded caps, blending, lighting and materials use Elaia's
 own rendering implementation. This is measured procedural geometry, not a
 photographic scan or an exact reproduction of Ayasa's lighting shader.
 Ellipses remain convenient handles for editing and collision checks; the
-visible field shoulders follow the actual source contours. The arbitrary
+visible oval factory field shoulders follow the actual source contours.
+Factory notes above E5 use Elaia’s circular dimensions and dimples while
+retaining their original recording references. New and retuned fields use
+procedural ellipses/circles with the specified dimple axes. The arbitrary
 6% reduction in field size has been removed.
 
 Unedited obsolete factory sessions reopen as the corrected Ayasa preset.
@@ -212,8 +229,9 @@ and the physical model are self-contained.
   with bounded caching and a physical-model fallback. The repository's
   AudioWorklet supplies tuned modal synthesis, shell/cavity percussion,
   sympathetic resonance, stereo placement and convolution reverb.
-- `playback.mjs`: physical chord voicings in each root register and ordered
-  shell demo sequences.
+- `playback.mjs`: all-register chord arpeggios and ordered shell demo sequences.
+- `tonefields.mjs`: the Elaia dimension table, pitch restrictions, provisional
+  Ayasa measurements for C3/G♯5, and rim-aligned field orientations.
 - `arrangement.mjs`: scale-following additions, default slots, symmetric
   inner clusters, manual-placement recognition, and factory restoration.
 - `shell-tap.mjs`: original finger-slap synthesis with filtered contact noise,
@@ -237,13 +255,14 @@ node tests/elaia-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-samples-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-arrangement-browser.test.cjs http://127.0.0.1:8080
 node tests/elaia-visibility-browser.test.cjs http://127.0.0.1:8080
+node tests/elaia-specs-browser.test.cjs http://127.0.0.1:8080
 ```
 
 The browser test requires Playwright. Set `PW` to an installed Playwright
 package path if it is not available through Node's module resolution.
 `SHOTS` selects a screenshot output directory.
 
-The model test checks every preset, both shells, chord octaves, demo ordering,
+The model test checks every preset, both shells, complete chord arpeggios, demo ordering,
 tuned partials, automatic clusters, silent fields, manual-placement persistence, custom
 ordering, placement restrictions, Unicode serialization, and malformed input.
 The browser test uses real Chromium WebGL and AudioWorklet output, measures a
@@ -253,3 +272,8 @@ no-WebGL fallback. The sample test decodes a real Ayasa D3 MP3, verifies its
 playback frequency, retuning and damping, and simulates a failed download.
 It caches that one source recording in `/tmp`; `SAMPLE_FIXTURE` can point to
 an existing copy for an offline run.
+
+The supplied specification decisions and remaining dimension gaps are recorded
+in [Specification notes](spec-notes.md). The specs browser test covers pitch
+limits, dimension changes and undo, playing positions, exact zenith cameras,
+the bottom overlay, persistence, and phone controls.

@@ -1,10 +1,10 @@
 import { noteName, midiToFreq } from '../src/model/notes.js';
 import { PUBLISHED_LAYOUTS } from './layouts.mjs';
 import { geometryReference, fieldGeometry, fieldShape, portRadius } from './geometry.mjs';
+import { allowedNote, sizeForNote, rimAngle, MIDI_MIN, MIDI_MAX } from './tonefields.mjs';
 
 export const MAX_FIELDS = 48;
-export const MIDI_MIN = 18;
-export const MIDI_MAX = 96;
+export { MIDI_MIN, MIDI_MAX };
 export const PRESETS = [
   ...Object.entries(PUBLISHED_LAYOUTS).sort(([a], [b]) =>
     Number(b === 'd-aegean-18') - Number(a === 'd-aegean-18')).map(([key, profile]) => {
@@ -54,6 +54,7 @@ export function createLayout(preset = PRESETS[0]) {
     const geometry = geometryReference(preset.profile, row[0], f.side);
     Object.assign(f, { x: row[2], z: row[3], size: row[4], angle: row[5], aspect: row[6], geometry });
     f.shape = fieldShape(f);
+    if (f.midi > 76) Object.assign(f, sizeForNote({ arrangement: preset.profile }, f), { geometry, angle: row[5] });
   });
   return {
     version: 1, title: preset.title, description: preset.note || '',
@@ -72,10 +73,10 @@ export function validateLayout(input) {
   const ids = new Set();
   const fields = input.fields.map(f => {
     if (!f || typeof f.id !== 'string' || !/^[\w-]{1,40}$/.test(f.id) || ids.has(f.id)
-        || (f.midi !== null && (!Number.isInteger(f.midi) || f.midi < MIDI_MIN || f.midi > MIDI_MAX))
+        || !allowedNote(f.midi, f.side)
         || !['top', 'bottom'].includes(f.side)
         || ![f.x, f.z, f.size, f.angle].every(Number.isFinite)
-        || f.size < 0.07 || f.size > 0.4
+        || f.size < 0.07 || f.size > 0.45
         || !Number.isFinite(f.aspect ?? 0.82) || (f.aspect ?? 0.82) < 0.4 || (f.aspect ?? 0.82) > 1.3
         || footprint(f).some(p => Math.hypot(...p) > 1.02)
         || Math.abs(f.angle) > Math.PI * 100) {
@@ -85,6 +86,27 @@ export function validateLayout(input) {
     if (f.shape !== undefined && !['dome', 'dimple', 'pure'].includes(f.shape)) throw new Error('Unknown tone field shape.');
     if (f.autoSlot !== undefined && !/^(n\d{1,2}|mutant|free)$/.test(f.autoSlot)) throw new Error('Unknown automatic field slot.');
     if (f.autoSize !== undefined && (!Number.isFinite(f.autoSize) || f.autoSize < 0.07 || f.autoSize > 0.4)) throw new Error('Invalid automatic field size.');
+    if (f.dimpleSize !== undefined && (!Number.isFinite(f.dimpleSize) || f.dimpleSize < 0.015 || f.dimpleSize > f.size)) throw new Error('Invalid dimple size.');
+    if (f.dimpleAspect !== undefined && (!Number.isFinite(f.dimpleAspect) || f.dimpleAspect < 0.4 || f.dimpleAspect > 1)) throw new Error('Invalid dimple aspect.');
+    if (f.lowerGeometry !== undefined) {
+      const g = f.lowerGeometry;
+      if (!g || !Number.isFinite(g.size) || g.size < 0.07 || g.size > 0.45
+          || !Number.isFinite(g.aspect) || g.aspect < 0.4 || g.aspect > 1.3
+          || !['dome', 'dimple', 'pure'].includes(g.shape)
+          || g.dimpleSize !== undefined && (!Number.isFinite(g.dimpleSize) || g.dimpleSize < 0.015 || g.dimpleSize > g.size)
+          || g.dimpleAspect !== undefined && (!Number.isFinite(g.dimpleAspect) || g.dimpleAspect < 0.4 || g.dimpleAspect > 1)) {
+        throw new Error('Invalid stored lower-register geometry.');
+      }
+    }
+    if (f.midi > 76 && (fieldShape(f, input) !== 'pure' || f.aspect !== 1)) {
+      const original = f;
+      f = { ...sizeForNote(input, f), angle: original.angle,
+        ...(original.geometry ? { geometry: original.geometry } : {}),
+        ...(original.lowerGeometry ? { lowerGeometry: original.lowerGeometry } : {}) };
+      if (footprint(f).some(p => Math.hypot(...p) > 1.02)) {
+        throw new Error('A circular high note needs more room inside the rim.');
+      }
+    }
     if (f.side === 'bottom' && portBlocked(f, f.x, f.z, portRadius(input) - 0.002)) {
       throw new Error('Bottom fields must leave the central sound port clear.');
     }
@@ -94,9 +116,17 @@ export function validateLayout(input) {
       ...(f.geometry !== undefined ? { geometry: f.geometry } : {}),
       ...(f.shape !== undefined ? { shape: f.shape } : {}),
       ...(f.autoSlot !== undefined ? { autoSlot: f.autoSlot } : {}),
-      ...(f.autoSize !== undefined ? { autoSize: f.autoSize } : {}) };
+      ...(f.autoSize !== undefined ? { autoSize: f.autoSize } : {}),
+      ...(f.dimpleSize !== undefined ? { dimpleSize: f.dimpleSize } : {}),
+      ...(f.dimpleAspect !== undefined ? { dimpleAspect: f.dimpleAspect } : {}),
+      ...(f.lowerGeometry !== undefined ? { lowerGeometry: {
+        size: f.lowerGeometry.size, aspect: f.lowerGeometry.aspect, shape: f.lowerGeometry.shape,
+        ...(f.lowerGeometry.dimpleSize !== undefined ? { dimpleSize: f.lowerGeometry.dimpleSize } : {}),
+        ...(f.lowerGeometry.dimpleAspect !== undefined ? { dimpleAspect: f.lowerGeometry.dimpleAspect } : {}),
+      } } : {}) };
   });
   if (input.manualPlacement !== undefined && typeof input.manualPlacement !== 'boolean') throw new Error('Invalid placement mode.');
+  if (input.position !== undefined && ![1, 2].includes(input.position)) throw new Error('Choose playing position 1 or 2.');
   return {
     version: 1, title: String(input.title || 'My handpan').slice(0, 64),
     description: String(input.description || '').slice(0, 240),
@@ -106,18 +136,46 @@ export function validateLayout(input) {
     a4: input.a4, finish: ['ember', 'silver', 'rose'].includes(input.finish) ? input.finish : 'ember',
     ...(input.sound !== undefined ? { sound: input.sound } : {}),
     ...(input.manualPlacement !== undefined ? { manualPlacement: input.manualPlacement } : {}),
+    ...(input.position !== undefined ? { position: input.position } : {}),
     fields,
   };
 }
 
 export function transposeLayout(layout, delta) {
-  if (!Number.isInteger(delta) || layout.fields.some(f => f.midi !== null && (f.midi + delta < MIDI_MIN || f.midi + delta > MIDI_MAX))) {
-    throw new Error('That would move a note outside the supported F♯0–C7 range.');
+  if (!Number.isInteger(delta) || layout.fields.some(f => f.midi !== null && !allowedNote(f.midi + delta, f.side))) {
+    throw new Error('Use F2–E6 without B♭4; bottom notes start at G♯2.');
   }
   const next = clone(layout);
-  next.fields.forEach(f => { if (f.midi !== null) f.midi += delta; });
+  next.fields = next.fields.map(field => {
+    if (field.midi === null) return field;
+    field.midi += delta;
+    if (field.midi > 76 && (field.shape !== 'pure' || field.aspect !== 1)) {
+      const lowerGeometry = { size: field.size, aspect: field.aspect ?? 0.82, shape: fieldShape(field),
+        ...(field.dimpleSize !== undefined ? { dimpleSize: field.dimpleSize } : {}),
+        ...(field.dimpleAspect !== undefined ? { dimpleAspect: field.dimpleAspect } : {}) };
+      const shaped = sizeForNote(next, field);
+      return { ...shaped, angle: field.angle, ...(field.geometry ? { geometry: field.geometry } : {}), lowerGeometry };
+    }
+    if (field.midi <= 76 && field.lowerGeometry) {
+      delete field.dimpleSize; delete field.dimpleAspect;
+      Object.assign(field, field.lowerGeometry);
+      delete field.lowerGeometry;
+    }
+    return field;
+  });
   next.transpose += delta;
+  if (!next.fields.every(f => fits(next, f))) throw new Error('That key’s full-size tonefields need more room in this layout.');
   return next;
+}
+
+export function nextTranspose(layout, direction) {
+  if (![-1, 1].includes(direction) || !layout.fields.some(f => f.midi !== null)) return null;
+  for (let delta = direction; Math.abs(delta) <= MIDI_MAX - MIDI_MIN; delta += direction) {
+    if (layout.fields.every(f => f.midi === null || allowedNote(f.midi + delta, f.side))) {
+      try { transposeLayout(layout, delta); return delta; } catch { /* Keep looking for a playable key. */ }
+    }
+  }
+  return null;
 }
 
 export function footprint(field, x = field.x, z = field.z, scale = 1) {
@@ -161,22 +219,20 @@ export function fits(layout, field, x = field.x, z = field.z) {
 }
 
 export function automaticField(layout, { id, midi, side }) {
-  for (const size of [0.125, 0.105, 0.085]) {
-    const field = { id, midi, side, x: 0, z: 0, size, angle: 0, aspect: 0.82, shape: 'dimple' };
-    let best = null;
-    for (const radius of [0.68, 0.48, 0.8, 0.34]) for (let i = 0; i < 48; i++) {
-      const angle = Math.PI / 2 + i / 48 * Math.PI * 2;
-      const x = Math.cos(angle) * radius, z = Math.sin(angle) * radius;
-      field.angle = angle;
-      if (!fits(layout, field, x, z)) continue;
-      const clearance = Math.min(...layout.fields.filter(f => f.side === side).map(f =>
-        Math.hypot(f.x - x, f.z - z) - f.size), 0.99 - radius);
-      const score = clearance - Math.abs(radius - 0.68) * 1.2;
-      if (!best || score > best.score) best = { score, field: { ...field, x, z } };
-    }
-    if (best) return best.field;
+  if (!allowedNote(midi, side)) return null;
+  const field = sizeForNote(layout, { id, midi, side, x: 0, z: 0, angle: 0 });
+  let best = null;
+  for (const radius of [0.68, 0.48, 0.8, 0.34]) for (let i = 0; i < 48; i++) {
+    const angle = Math.PI / 2 + i / 48 * Math.PI * 2;
+    const x = Math.cos(angle) * radius, z = Math.sin(angle) * radius;
+    field.angle = rimAngle(field, x, z);
+    if (!fits(layout, field, x, z)) continue;
+    const clearance = Math.min(...layout.fields.filter(f => f.side === side).map(f =>
+      Math.hypot(f.x - x, f.z - z) - f.size), 0.99 - radius);
+    const score = clearance - Math.abs(radius - 0.68) * 1.2;
+    if (!best || score > best.score) best = { score, field: { ...field, x, z } };
   }
-  return null;
+  return best?.field || null;
 }
 
 export function arrangementInfo(layout) {
@@ -202,10 +258,13 @@ export function restoreCurrent(input) {
     const factory = createLayout(preset);
     if (layout.fields.length !== factory.fields.length || layout.fields.some(f => {
       const g = factory.fields.find(g => g.id === f.id);
+      const row = PUBLISHED_LAYOUTS[preset.profile]?.fields.find(r => r[1] === f.side && midiOf(r[0]) === f.midi - layout.transpose);
+      const oldPure = f.midi - layout.transpose > 76 && row && Math.abs(f.size - row[4]) < 1e-5
+        && Math.abs((f.aspect ?? 0.82) - row[6]) < 1e-5;
       return !g || f.midi !== g.midi + layout.transpose || f.side !== g.side
         || Math.abs(f.x - g.x) > 1e-5 || Math.abs(f.z - g.z) > 1e-5
-        || Math.abs(f.angle - g.angle) > 1e-5 || Math.abs((f.aspect ?? 0.82) - g.aspect) > 1e-5
-        || (Math.abs(f.size - g.size) > 1e-5 && Math.abs(f.size - g.size * 0.94) > 1e-5)
+        || Math.abs(f.angle - g.angle) > 1e-5 || !oldPure && Math.abs((f.aspect ?? 0.82) - g.aspect) > 1e-5
+        || (!oldPure && Math.abs(f.size - g.size) > 1e-5 && Math.abs(f.size - g.size * 0.94) > 1e-5)
         || (f.geometry && f.geometry !== g.geometry) || (f.shape && f.shape !== g.shape);
     })) return layout;
   }

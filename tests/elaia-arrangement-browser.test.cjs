@@ -50,8 +50,16 @@ const check = (value, message) => { assert.ok(value, message); count++; };
     await page.click('[data-tool="add"]');
     check(await page.inputValue('#add-note') === '61', 'A missing published top note is offered before extensions');
     await page.click('#place-note-btn');
+    check(await page.evaluate(() => __elaia.layout.fields.length === 17 && !__elaia.layout.fields.some(f => f.side === 'top' && f.midi === 61))
+      && (await page.textContent('#toast')).includes('full-size'), 'A larger C sharp 4 is rejected when its original slot cannot fit the supplied dimensions');
+    await page.click('#restore-original');
+    await page.click('.note-chip[data-id="n1"]'); await page.click('#remove-field');
+    await page.click('[data-tool="add"]');
+    check(await page.inputValue('#add-note') === '54', 'A missing low published note also takes priority over extensions');
+    await page.click('#place-note-btn');
     const restored = await page.evaluate(() => __elaia.layout.fields.at(-1));
-    check(['x', 'z', 'size', 'angle', 'geometry'].every(key => restored[key] === stock.fields[3][key]), 'Adding fills the removed field at its exact factory position');
+    check(['x', 'z'].every(key => restored[key] === stock.fields[1][key]) && Math.abs(restored.size * 530 - 160) < 0.01,
+      'Adding fills a vacant field at its factory centre with the specified F sharp 3 dimensions');
     await page.click('#restore-original');
     await page.click('[data-tool="add"]'); await page.selectOption('#add-note', '');
     await page.click('#place-note-btn');
