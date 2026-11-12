@@ -86,7 +86,15 @@ const check = (value, message) => { assert.ok(value, message); count++; };
   }, camera);
   const chordAligned = (page, id) => page.evaluate(id => {
     const r = __elaia.renderer, index = r.layout.fields.findIndex(f => f.id === id);
-    const time = performance.now() / 1000, hits = r.hits.slice();
+    const hits = r.hits.slice();
+    let strikeTime = -1;
+    for (let i = 0; i < hits.length; i += 4) {
+      if (hits[i] === index + 1) strikeTime = Math.max(strikeTime, hits[i + 1]);
+    }
+    if (strikeTime < 0) return false;
+    // Sample the real chord strike at a fixed point in its brief pulse. GPU
+    // readbacks on software rendering can outlast the wall-clock animation.
+    const time = strikeTime + 0.12;
     r.dirty = true; r.draw(time);
     const f = r.layout.fields[index], p = r.project(r.surfaceModel.sample(f.x, f.z, f.side).slice(0, 3));
     const x = Math.round(p.x * r.canvas.width / r.width) - 4;
