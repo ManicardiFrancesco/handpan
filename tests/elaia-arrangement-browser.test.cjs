@@ -15,6 +15,8 @@ const check = (value, message) => { assert.ok(value, message); count++; };
   const errors = [];
   const open = async options => {
     const context = await browser.newContext(options);
+    context.setDefaultTimeout(90_000);
+    context.setDefaultNavigationTimeout(90_000);
     await context.route('**/smp-*.mp3*', r => r.fulfill({ status: 200, contentType: 'audio/mpeg', body: '' }));
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));

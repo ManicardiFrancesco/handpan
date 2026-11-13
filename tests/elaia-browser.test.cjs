@@ -21,6 +21,8 @@ function check(value, message) { assert.ok(value, message); count++; }
     page.on('requestfailed', r => errors.push(r.url() + ': ' + r.failure().errorText));
   };
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+  context.setDefaultTimeout(90_000);
+  context.setDefaultNavigationTimeout(90_000);
   // Exercise synthesized fallback deterministically for the worklet/FFT checks.
   // The separate sample test covers successful recorded playback.
   const failedRecording = route => route.fulfill({ status: 200, contentType: 'audio/mpeg', body: '' });
@@ -449,6 +451,8 @@ function check(value, message) { assert.ok(value, message); count++; }
     await page.screenshot({ path: path.join(ARTIFACTS, 'elaia-desktop.png'), fullPage: true, timeout: 90_000 });
 
     const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    mobileContext.setDefaultTimeout(90_000);
+    mobileContext.setDefaultNavigationTimeout(90_000);
     await mobileContext.route('**/smp-*.mp3*', failedRecording);
     const mobile = await mobileContext.newPage(); captureErrors(mobile);
     await mobile.goto(BASE + '/Elaia-handpan-player/');

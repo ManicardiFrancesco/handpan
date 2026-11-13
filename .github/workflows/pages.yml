@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   test:
+    name: Unit tests
     runs-on: ubuntu-latest
-    # The real WebGL suites render in software on the hosted runner.
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -30,6 +30,27 @@ jobs:
             case "$test" in *browser.test.cjs) continue ;; esac
             node "$test"
           done
+  browser:
+    name: Browser (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    # Each real WebGL suite gets its own software renderer and timeout budget.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - tests/browser.test.cjs
+          - tests/elaia-arrangement-browser.test.cjs
+          - tests/elaia-browser.test.cjs
+          - tests/elaia-specs-browser.test.cjs
+          - tests/elaia-visibility-browser.test.cjs
+          - tests/trainer-browser.test.cjs
+          # Recorded playback needs an external MP3 fixture and runs locally.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - name: Install test browser
         run: |
           npm install --prefix "$RUNNER_TEMP/handpan-tests" --no-save playwright@1.65.0
@@ -37,18 +58,15 @@ jobs:
       - name: Browser tests
         env:
           PW: ${{ runner.temp }}/handpan-tests/node_modules/playwright
+          BROWSER_TEST: ${{ matrix.suite }}
         run: |
           python3 -m http.server 8080 --bind 127.0.0.1 > "$RUNNER_TEMP/handpan-server.log" 2>&1 &
           site_pid=$!
           trap 'kill "$site_pid"' EXIT
           curl --retry 5 --retry-connrefused --retry-delay 1 --silent --fail http://127.0.0.1:8080 > /dev/null
-          for test in tests/*browser.test.cjs; do
-            # Recorded playback needs an external MP3 fixture.
-            case "$test" in tests/elaia-samples-browser.test.cjs) continue ;; esac
-            node "$test" http://127.0.0.1:8080
-          done
+          node "$BROWSER_TEST" http://127.0.0.1:8080
   deploy:
-    needs: test
+    needs: [test, browser]
     # Manual runs from other branches must not replace the published site.
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
